@@ -1,6 +1,5 @@
-from abc import abstractmethod, ABCMeta
 from collections import OrderedDict
-from typing import Any, Dict
+from typing import Any, Callable, Dict
 
 import getopt
 import os
@@ -8,7 +7,7 @@ import re
 import sys
 
 from .errors import StimulusError
-from .parser import Parser
+from .generators.base import CodeGenerator, CodeGeneratorBase, ParamMode, ParamSpec
 from .version import __version__
 
 
@@ -23,12 +22,18 @@ def usage():
 ################################################################################
 
 
-def get_code_generator_class_for_language(lang: str):
+def get_code_generator_class_for_language(
+    lang: str,
+) -> Callable[[], CodeGenerator]:
     return globals()[f"{lang}CodeGenerator"]
 
 
 def has_code_generator_class_for_language(lang: str) -> bool:
-    return f"{lang}CodeGenerator" in globals()
+    try:
+        get_code_generator_class_for_language(lang)
+        return True
+    except KeyError:
+        return False
 
 
 def main():
@@ -39,8 +44,8 @@ def main():
         usage()
         sys.exit(2)
 
-    types = []
-    functions = []
+    type_files = []
+    function_files = []
     inputs = []
     languages = []
     outputs = []
@@ -52,9 +57,9 @@ def main():
         elif o == "-o":
             outputs.append(a)
         elif o == "-t":
-            types.append(a)
+            type_files.append(a)
         elif o == "-f":
-            functions.append(a)
+            function_files.append(a)
         elif o == "-l":
             languages.append(a)
         elif o == "-i":
@@ -70,11 +75,11 @@ def main():
         if not has_code_generator_class_for_language(language):
             print("Error: unknown language:", language)
             sys.exit(6)
-    for f in types:
+    for f in type_files:
         if not os.access(f, os.R_OK):
             print("Error: cannot open type file:", f)
             sys.exit(5)
-    for f in functions:
+    for path in function_files:
         if not os.access(f, os.R_OK):
             print("Error: cannot open function file:", f)
             sys.exit(5)
@@ -86,118 +91,18 @@ def main():
 
     # OK, do the trick:
     for language, output in zip(languages, outputs):
-        cls = get_code_generator_class_for_language(language)
-        generator = cls(functions, types)
-        generator.generate(inputs, output)
+        factory = get_code_generator_class_for_language(language)
+        generator = factory()
+        for path in function_files:
+            generator.load_function_rules_from_file(path)
+        for path in type_files:
+            generator.load_type_rules_from_file(path)
 
-
-################################################################################
-class CodeGenerator(metaclass=ABCMeta):
-    def __init__(self, func, types):
-        # Set name, note this only works correctly if derived classes always
-        # extend it as by prepending the language to the CodeGenerator class
-        # name
-        self.name = type(self).__name__
-        self.name = self.name[0 : len(self.name) - len("CodeGenerator")]
-
-        # Parse function and type files
-        parser = Parser()
-        self.func = OrderedDict()
-        for f in func:
-            ff = open(f, "rU")
-            newfunc = parser.parse(ff)
-            self.func.update(newfunc)
-            ff.close()
-
-        self.types = OrderedDict()
-        for t in types:
-            ff = open(t, "rU")
-            newtypes = parser.parse(ff)
-            self.types.update(newtypes)
-            ff.close()
-
-        # The default return type is 'ERROR'
-        for f in list(self.func.keys()):
-            if "RETURN" not in self.func[f]:
-                self.func[f]["RETURN"] = "ERROR"
-
-    def generate(self, inputs, output):
-        out = open(output, "w")
-        self.append_inputs(inputs, out)
-        for f in list(self.func.keys()):
-            if "FLAGS" in self.func[f]:
-                flags = self.func[f]["FLAGS"]
-                flags = flags.split(",")
-                flags = [flag.strip() for flag in flags]
-            else:
-                self.func[f]["FLAGS"] = []
-            self.generate_function(f, out)
-        out.close()
-
-    @abstractmethod
-    def generate_function(self, f, out):
-        raise NotImplementedError(
-            "Error: invalid code generator, this method should be overridden"
-        )
-
-    def parse_params(self, function):
-        if "PARAMS" not in self.func[function]:
-            return OrderedDict()
-
-        params = self.func[function]["PARAMS"]
-        params = params.split(",")
-        params = [p.strip() for p in params]
-        params = [p.split(" ", 1) for p in params]
-        for p in range(len(params)):
-            if params[p][0] in ["OUT", "IN", "INOUT"]:
-                params[p] = [params[p][0]] + params[p][1].split(" ", 1)
-            else:
-                params[p] = ["IN", params[p][0]] + params[p][1].split(" ", 1)
-            if "=" in params[p][2]:
-                params[p] = params[p][:2] + params[p][2].split("=", 1)
-        params = [[p.strip() for p in pp] for pp in params]
-        res = OrderedDict()
-        for p in params:
-            if len(p) == 3:
-                res[p[2]] = {"mode": p[0], "type": p[1]}
-            else:
-                res[p[2]] = {"mode": p[0], "type": p[1], "default": p[3]}
-        return res
-
-    def parse_deps(self, function):
-        if "DEPS" not in self.func[function]:
-            return OrderedDict()
-
-        deps = self.func[function]["DEPS"]
-        deps = deps.split(",")
-        deps = [d.strip() for d in deps]
-        deps = [d.split("ON", 1) for d in deps]
-        deps = [[dd.strip() for dd in d] for d in deps]
-        deps = [[d[0]] + d[1].split(" ", 1) for d in deps]
-        deps = [[dd.strip() for dd in d] for d in deps]
-        res = OrderedDict()
-        for d in deps:
-            res[d[0]] = d[1:]
-        return res
-
-    def append_inputs(self, inputs, output):
-        for i in inputs:
-            ii = open(i, "rU")
-            str = ii.read()
-            while str != "":
-                output.write(str)
-                str = ii.read()
-            ii.close()
-        pass
-
-    def ignore(self, function):
-        if "IGNORE" in self.func[function]:
-            ign = self.func[function]["IGNORE"]
-            ign = ign.split(",")
-            ign = [i.strip() for i in ign]
-            if self.name in ign:
-                return True
-        return False
+        if output == "-":
+            generator.generate(inputs, sys.stdout)
+        else:
+            with open(output, "w"):
+                generator.generate(inputs, output)
 
 
 ################################################################################
@@ -206,7 +111,7 @@ class CodeGenerator(metaclass=ABCMeta):
 ################################################################################
 
 
-class RNamespaceCodeGenerator(CodeGenerator):
+class RNamespaceCodeGenerator(CodeGeneratorBase):
     def generate(self, inputs, output):
         """This is very simple, we include an 'export' line for every
         function which it not to be ignored by the RNamespace language.
@@ -216,33 +121,31 @@ class RNamespaceCodeGenerator(CodeGenerator):
         ie. igraph_clusters is mapped to graph.clusters."""
         out = open(output, "w")
         self.append_inputs(inputs, out)
-        for f in list(self.func.keys()):
-            if self.ignore(f):
+        for f in self.func.keys():
+            if self.should_ignore_function(f):
                 continue
             name = self.func[f].get("NAME-R", f[1:].replace("_", "."))
             out.write("export(" + name + ")\n")
         out.close()
 
 
-class RRCodeGenerator(CodeGenerator):
+class RRCodeGenerator(CodeGeneratorBase):
     def generate_function(self, function, out):
 
         # Ignore?
-        if self.ignore(function):
+        if self.should_ignore_function(function):
             return
 
         name = self.func[function].get("NAME-R", function[1:].replace("_", "."))
-        params = self.parse_params(function)
-        self.deps = self.parse_deps(function)
+        params = self.get_parameters_for_function(function)
+        self.deps = self.get_dependencies_for_function(function)
 
         # Check types
-        for p in list(params.keys()):
-            tname = params[p]["type"]
-            if tname not in list(self.types.keys()):
+        for p in params:
+            tname = params[p].type
+            if tname not in self.types:
                 print("Error: Unknown type encountered:", tname)
                 sys.exit(7)
-
-            params[p].setdefault("mode", "IN")
 
         ## Roxygen to export the function
         internal = self.func[function].get("INTERNAL")
@@ -266,7 +169,7 @@ class RRCodeGenerator(CodeGenerator):
         out.write(" <- function(")
 
         def do_par(pname):
-            tname = params[pname]["type"]
+            tname = params[pname].type
             t = self.types[tname]
             default = ""
             header = pname.replace("_", ".")
@@ -276,11 +179,11 @@ class RRCodeGenerator(CodeGenerator):
                 header = header.replace("%I%", pname.replace("_", "."))
             else:
                 header = ""
-            if "default" in params[pname]:
-                if "DEFAULT" in t and params[pname]["default"] in t["DEFAULT"]:
-                    default = "=" + t["DEFAULT"][params[pname]["default"]]
+            if params[pname].default is not None:
+                if "DEFAULT" in t and params[pname].default in t["DEFAULT"]:
+                    default = "=" + t["DEFAULT"][params[pname].default]
                 else:
-                    default = "=" + params[pname]["default"]
+                    default = "=" + str(params[pname].default)
             header = header + default
             if pname in list(self.deps.keys()):
                 deps = self.deps[pname]
@@ -297,9 +200,7 @@ class RRCodeGenerator(CodeGenerator):
                 )
             return header
 
-        head = [
-            do_par(n) for n, p in list(params.items()) if p["mode"] in ["IN", "INOUT"]
-        ]
+        head = [do_par(n) for n, p in params.items() if p.is_input]
         head = [h for h in head if h != ""]
         out.write(", ".join(head))
         out.write(") {\n")
@@ -316,12 +217,12 @@ class RRCodeGenerator(CodeGenerator):
         out.write("  # Argument checks\n")
 
         def do_par(pname):
-            tname = params[pname]["type"]
+            tname = params[pname].type
             t = self.types[tname]
-            m = params[pname]["mode"]
-            if m in ["IN", "INOUT"] and "INCONV" in t:
-                if m in t["INCONV"]:
-                    res = "  " + t["INCONV"][m]
+            mode = params[pname].mode_str
+            if params[pname].is_input and "INCONV" in t:
+                if mode in t["INCONV"]:
+                    res = "  " + t["INCONV"][mode]
                 else:
                     res = "  " + t["INCONV"]
             else:
@@ -360,7 +261,7 @@ class RRCodeGenerator(CodeGenerator):
 
         ## Function call
         def do_par(pname):
-            t = self.types[params[pname]["type"]]
+            t = self.types[params[pname].type]
             call = pname.replace("_", ".")
             if "CALL" in t:
                 call = t["CALL"]
@@ -373,9 +274,7 @@ class RRCodeGenerator(CodeGenerator):
         out.write("  on.exit( .Call(C_R_igraph_finalizer) )\n")
         out.write("  # Function call\n")
         out.write("  res <- .Call(C_R_" + function + ", ")
-        call = [
-            do_par(n) for n, p in list(params.items()) if p["mode"] in ["IN", "INOUT"]
-        ]
+        call = [do_par(n) for n, p in params.items() if p.is_input]
         call = [c for c in call if c != ""]
         out.write(", ".join(call))
         out.write(")\n")
@@ -384,9 +283,9 @@ class RRCodeGenerator(CodeGenerator):
         def do_opar(pname, realname=None, iprefix=""):
             if realname is None:
                 realname = pname
-            tname = params[pname]["type"]
+            tname = params[pname].type
             t = self.types[tname]
-            mode = params[pname]["mode"]
+            mode = params[pname].mode_str
             if "OUTCONV" in t and mode in t["OUTCONV"]:
                 outconv = "  " + t["OUTCONV"][mode]
             else:
@@ -412,7 +311,7 @@ class RRCodeGenerator(CodeGenerator):
                 )
             return re.sub("%I[0-9]+%", "", outconv)
 
-        retpars = [n for n, p in list(params.items()) if p["mode"] in ["OUT", "INOUT"]]
+        retpars = [n for n, p in params.items() if p.is_output]
 
         if len(retpars) <= 1:
             outconv = [do_opar(n, "res") for n in list(params.keys())]
@@ -471,23 +370,22 @@ class RRCodeGenerator(CodeGenerator):
         out.write("  res\n}\n\n")
 
 
-class RCCodeGenerator(CodeGenerator):
+class RCCodeGenerator(CodeGeneratorBase):
     def generate_function(self, function, out):
 
         # Ignore?
-        if self.ignore(function):
+        if self.should_ignore_function(function):
             return
 
-        params = self.parse_params(function)
-        self.deps = self.parse_deps(function)
+        params = self.get_parameters_for_function(function)
+        self.deps = self.get_dependencies_for_function(function)
 
         # Check types
-        for p in list(params.keys()):
-            tname = params[p]["type"]
-            if tname not in list(self.types.keys()):
+        for p in params:
+            tname = params[p].type
+            if tname not in self.types:
                 print("Error: Unknown type " + tname + " in " + function)
                 return
-            params[p].setdefault("mode", "IN")
 
         ## Compile the output
         ## This code generator is quite difficult, so we use different
@@ -533,7 +431,7 @@ class RCCodeGenerator(CodeGenerator):
         is created by prefixing the original name with 'R_'."""
 
         def do_par(pname):
-            t = self.types[params[pname]["type"]]
+            t = self.types[params[pname].type]
             if "HEADER" in t:
                 if t["HEADER"]:
                     return t["HEADER"].replace("%I%", pname)
@@ -542,9 +440,7 @@ class RCCodeGenerator(CodeGenerator):
             else:
                 return pname
 
-        inout = [
-            do_par(n) for n, p in list(params.items()) if p["mode"] in ["IN", "INOUT"]
-        ]
+        inout = [do_par(n) for n, p in params.items() if p.is_input]
         inout = ["SEXP " + n for n in inout if n != ""]
         return "SEXP R_" + function + "(" + ", ".join(inout) + ")"
 
@@ -561,13 +457,13 @@ class RCCodeGenerator(CodeGenerator):
 
         def do_par(pname):
             cname = "c_" + pname
-            t = self.types[params[pname]["type"]]
+            t = self.types[params[pname].type]
             if "DECL" in t:
                 decl = "  " + t["DECL"]
             elif "CTYPE" in t:
                 ctype = t["CTYPE"]
                 if type(ctype) == dict:
-                    mode = params[pname]["mode"]
+                    mode = params[pname].mode_str
                     decl = "  " + ctype[mode] + " " + cname + ";"
                 else:
                     decl = "  " + ctype + " " + cname + ";"
@@ -577,10 +473,10 @@ class RCCodeGenerator(CodeGenerator):
 
         inout = [do_par(n) for n in list(params.keys())]
         out = [
-            "  SEXP " + n + ";" for n, p in list(params.items()) if p["mode"] == "OUT"
+            "  SEXP " + n + ";" for n, p in params.items() if p.mode is ParamMode.OUT
         ]
 
-        retpars = [n for n, p in list(params.items()) if p["mode"] in ["OUT", "INOUT"]]
+        retpars = [n for n, p in params.items() if p.is_output]
 
         rt = self.types[self.func[function]["RETURN"]]
         if "DECL" in rt:
@@ -588,7 +484,7 @@ class RCCodeGenerator(CodeGenerator):
         elif "CTYPE" in rt and len(retpars) == 0:
             ctype = rt["CTYPE"]
             if type(ctype) == dict:
-                mode = params[pname]["mode"]  # noqa
+                mode = params[pname].mode_str  # noqa
                 retdecl = "  " + ctype[mode] + " " + "c_result;"
             else:
                 retdecl = "  " + rt["CTYPE"] + " c_result;"
@@ -611,8 +507,8 @@ class RCCodeGenerator(CodeGenerator):
 
         def do_par(pname):
             cname = "c_" + pname
-            t = self.types[params[pname]["type"]]
-            mode = params[pname]["mode"]
+            t = self.types[params[pname].type]
+            mode = params[pname].mode_str
             if "INCONV" in t and mode in t["INCONV"]:
                 inconv = "  " + t["INCONV"][mode]
             else:
@@ -639,7 +535,7 @@ class RCCodeGenerator(CodeGenerator):
 
         def docall(t, n):
             if type(t) == dict:
-                mode = params[n]["mode"]
+                mode = params[n].mode_str
                 if mode in t:
                     return t[mode]
                 else:
@@ -647,7 +543,7 @@ class RCCodeGenerator(CodeGenerator):
             else:
                 return t
 
-        types = [self.types[params[n]["type"]] for n in list(params.keys())]
+        types = [self.types[params[n].type] for n in list(params.keys())]
         call = list(
             map(
                 lambda t, n: docall(t.get("CALL", "c_" + n), n),
@@ -662,7 +558,7 @@ class RCCodeGenerator(CodeGenerator):
                 list(params.keys()),
             )
         )
-        retpars = [n for n, p in list(params.items()) if p["mode"] in ["OUT", "INOUT"]]
+        retpars = [n for n, p in params.items() if p.is_output]
         call = [c for c in call if c != ""]
         res = "  " + function + "(" + ", ".join(call) + ");\n"
         if len(retpars) == 0:
@@ -695,8 +591,8 @@ class RCCodeGenerator(CodeGenerator):
 
         def do_par(pname):
             cname = "c_" + pname
-            t = self.types[params[pname]["type"]]
-            mode = params[pname]["mode"]
+            t = self.types[params[pname].type]
+            mode = params[pname].mode_str
             if "OUTCONV" in t and mode in t["OUTCONV"]:
                 outconv = "  " + t["OUTCONV"][mode]
             else:
@@ -711,7 +607,7 @@ class RCCodeGenerator(CodeGenerator):
         outconv = [do_par(n) for n in list(params.keys())]
         outconv = [o for o in outconv if o != ""]
 
-        retpars = [n for n, p in list(params.items()) if p["mode"] in ["OUT", "INOUT"]]
+        retpars = [n for n, p in params.items() if p.is_output]
         if len(retpars) == 0:
             # return the return value of the function
             rt = self.types[self.func[function]["RETURN"]]
@@ -766,7 +662,7 @@ class RCCodeGenerator(CodeGenerator):
 ################################################################################
 
 
-class JavaCodeGenerator(CodeGenerator):
+class JavaCodeGenerator(CodeGeneratorBase):
     """Class containing the common parts of JavaJavaCodeGenerator and
     JavaCCodeGenerator"""
 
@@ -795,7 +691,7 @@ class JavaCodeGenerator(CodeGenerator):
         - is_static: whether the function is static
         - is_constructor: whether the function is a constructor
         """
-        params = self.parse_params(f)
+        params = self.get_parameters_for_function(f)
         is_constructor = False
 
         # We will collect data related to the current function in a dict
@@ -805,17 +701,17 @@ class JavaCodeGenerator(CodeGenerator):
 
         # Check parameter types to determine Java calling semantics
         types = {"IN": [], "OUT": [], "INOUT": []}
-        for p in list(params.keys()):
-            types[params[p]["mode"]].append(params[p])
+        for p in params:
+            types[params[p].mode_str].append(params[p])
 
         if len(types["OUT"]) + len(types["INOUT"]) == 1:
             # If a single one is OUT or INOUT and all others are
             # INs, then this is our lucky day - the method fits the Java
             # semantics
             if len(types["OUT"]) > 0:
-                return_type_name = types["OUT"][0]["type"]
+                return_type_name = types["OUT"][0].type
             else:
-                return_type_name = types["INOUT"][0]["type"]
+                return_type_name = types["INOUT"][0].type
         elif len(types["OUT"]) + len(types["INOUT"]) == 0 and "RETURN" in self.func[f]:
             # There are only input parameters and the return type is specified,
             # this also fits the Java semantics
@@ -828,10 +724,10 @@ class JavaCodeGenerator(CodeGenerator):
         # Loop through the input parameters
         method_arguments = []
         found_self = False
-        for p in list(params.keys()):
-            if params[p]["mode"] != "IN":
+        for p in params:
+            if params[p].mode_str != "IN":
                 continue
-            type_name = params[p]["type"]
+            type_name = params[p].type
             if not found_self and type_name == "GRAPH":
                 # this will be the 'self' argument
                 found_self = True
@@ -849,8 +745,8 @@ class JavaCodeGenerator(CodeGenerator):
 
         if not found_self:
             # Loop through INOUT arguments if we found no "self" yet
-            for p in list(params.keys()):
-                if params[p]["mode"] == "INOUT" and params[p]["type"] == "GRAPH":
+            for p in params:
+                if params[p].mode is ParamMode.OUT and params[p].type == "GRAPH":
                     found_self = True
                     data["self_name"] = p
                     break
@@ -876,9 +772,6 @@ class JavaCodeGenerator(CodeGenerator):
 
 
 class JavaJavaCodeGenerator(JavaCodeGenerator):
-    def __init__(self, func, types):
-        JavaCodeGenerator.__init__(self, func, types)
-
     def generate(self, inputs, output):
         out = open(output, "w")
 
@@ -892,7 +785,7 @@ class JavaJavaCodeGenerator(JavaCodeGenerator):
                 continue
 
             for f in list(self.func.keys()):
-                if self.ignore(f):
+                if self.should_ignore_function(f):
                     continue
                 try:
                     func_metadata = self.get_function_metadata(f)
@@ -910,12 +803,9 @@ class JavaJavaCodeGenerator(JavaCodeGenerator):
 
 
 class JavaCCodeGenerator(JavaCodeGenerator):
-    def __init__(self, func, types):
-        JavaCodeGenerator.__init__(self, func, types)
-
     def generate_function(self, function, out):
         # Ignore?
-        if self.ignore(function):
+        if self.should_ignore_function(function):
             return
 
         try:
@@ -924,16 +814,15 @@ class JavaCCodeGenerator(JavaCodeGenerator):
             out.write("/* %s */\n" % str(e))
             return
 
-        params = self.parse_params(function)
-        self.deps = self.parse_deps(function)
+        params = self.get_parameters_for_function(function)
+        self.deps = self.get_dependencies_for_function(function)
 
         # Check types
-        for p in list(params.keys()):
-            tname = params[p]["type"]
-            if tname not in list(self.types.keys()):
+        for p in params:
+            tname = params[p].type
+            if tname not in self.types:
                 print("Error: Unknown type " + tname + " in " + function)
                 return
-            params[p].setdefault("mode", "IN")
 
         ## Compile the output
         ## This code generator is quite difficult, so we use different
@@ -1025,7 +914,7 @@ class JavaCCodeGenerator(JavaCodeGenerator):
 
         def do_cpar(pname):
             cname = "c_" + pname
-            t = self.types[params[pname]["type"]]
+            t = self.types[params[pname].type]
             if "CDECL" in t:
                 decl = "  " + t["CDECL"]
             elif "CTYPE" in t:
@@ -1036,7 +925,7 @@ class JavaCCodeGenerator(JavaCodeGenerator):
 
         def do_jpar(pname):
             jname = "j_" + pname
-            t = self.types[params[pname]["type"]]
+            t = self.types[params[pname].type]
             if "JAVADECL" in t:
                 decl = "  " + t["JAVADECL"]
             elif "JAVATYPE" in t:
@@ -1046,7 +935,7 @@ class JavaCCodeGenerator(JavaCodeGenerator):
             return decl.replace("%J%", jname).replace("%I%", pname)
 
         inout = [do_cpar(n) for n in list(params.keys())]
-        out = [do_jpar(n) for n, p in list(params.items()) if p["mode"] == "OUT"]
+        out = [do_jpar(n) for n, p in params.items() if p.mode is ParamMode.OUT]
 
         rt = self.types[self.func[function]["RETURN"]]
         if "CDECL" in rt:
@@ -1056,11 +945,11 @@ class JavaCCodeGenerator(JavaCodeGenerator):
         else:
             retdecl = ""
 
-        rnames = [n for n, p in list(params.items()) if p["mode"] in ["OUT", "INOUT"]]
+        rnames = [n for n, p in params.items() if p.is_output]
         jretdecl = ""
         if len(rnames) > 0:
             n = rnames[0]
-            rtname = params[n]["type"]
+            rtname = params[n].type
         else:
             rtname = self.func[function]["RETURN"]
         rt = self.types[rtname]
@@ -1094,8 +983,8 @@ class JavaCCodeGenerator(JavaCodeGenerator):
 
         def do_par(pname):
             cname = "c_" + pname
-            t = self.types[params[pname]["type"]]
-            mode = params[pname]["mode"]
+            t = self.types[params[pname].type]
+            mode = params[pname].mode_str
             if "INCONV" in t and mode in t["INCONV"]:
                 inconv = "  " + t["INCONV"][mode]
             else:
@@ -1119,7 +1008,7 @@ class JavaCCodeGenerator(JavaCodeGenerator):
         usual %C% and %I% substitutions, otherwise the standard 'c_'
         prefixed C argument name is used.
         """
-        types = [self.types[params[n]["type"]] for n in list(params.keys())]
+        types = [self.types[params[n].type] for n in list(params.keys())]
         call = list(
             map(lambda t, n: t.get("CALL", "c_" + n), types, list(params.keys()))
         )
@@ -1165,8 +1054,8 @@ class JavaCCodeGenerator(JavaCodeGenerator):
         def do_par(pname):
             cname = "c_" + pname
             jname = "j_" + pname
-            t = self.types[params[pname]["type"]]
-            mode = params[pname]["mode"]
+            t = self.types[params[pname].type]
+            mode = params[pname].mode_str
             if "OUTCONV" in t and mode in t["OUTCONV"]:
                 outconv = "  " + t["OUTCONV"][mode]
             else:
@@ -1176,9 +1065,7 @@ class JavaCCodeGenerator(JavaCodeGenerator):
         outconv = [do_par(n) for n in list(params.keys())]
         outconv = [o for o in outconv if o != ""]
 
-        retpars = [
-            (n, p) for n, p in list(params.items()) if p["mode"] in ["OUT", "INOUT"]
-        ]
+        retpars = [(n, p) for n, p in params.items() if p.is_output]
         if len(retpars) == 0:
             # return the return value of the function
             rt = self.types[self.func[function]["RETURN"]]
@@ -1192,7 +1079,7 @@ class JavaCCodeGenerator(JavaCodeGenerator):
             ret = "\n".join(outconv)
         elif len(retpars) == 1:
             # return the single output value
-            if retpars[0][1]["mode"] == "OUT":
+            if retpars[0][1].mode is ParamMode.OUT:
                 # OUT parameter
                 retconv = "  result = j_" + retpars[0][0] + ";"
             else:
@@ -1227,31 +1114,25 @@ class JavaCCodeGenerator(JavaCodeGenerator):
 ################################################################################
 
 
-class ShellLnCodeGenerator(CodeGenerator):
-    def __init__(self, func, types):
-        CodeGenerator.__init__(self, func, types)
-
+class ShellLnCodeGenerator(CodeGeneratorBase):
     def generate(self, inputs, output):
         out = open(output, "w")
         self.append_inputs(inputs, out)
         for f in list(self.func.keys()):
-            if self.ignore(f):
+            if self.should_ignore_function(f):
                 continue
             out.write(f + "\n")
         out.close()
 
 
-class ShellCodeGenerator(CodeGenerator):
-    def __init__(self, func, types):
-        CodeGenerator.__init__(self, func, types)
-
+class ShellCodeGenerator(CodeGeneratorBase):
     def generate(self, inputs, output):
         out = open(output, "w")
         self.append_inputs(inputs, out)
         out.write("\n/* Function prototypes first */\n\n")
 
         for f in list(self.func.keys()):
-            if self.ignore(f):
+            if self.should_ignore_function(f):
                 continue
             if "FLAGS" in self.func[f]:
                 flags = self.func[f]["FLAGS"]
@@ -1265,7 +1146,7 @@ class ShellCodeGenerator(CodeGenerator):
         out.write("int main(int argc, char **argv) {\n\n")
         out.write("  const char *base=basename(argv[0]);\n\n  ")
         for f in list(self.func.keys()):
-            if self.ignore(f):
+            if self.should_ignore_function(f):
                 continue
             out.write(
                 'if (!strcasecmp(base, "'
@@ -1279,7 +1160,7 @@ class ShellCodeGenerator(CodeGenerator):
 
         out.write("\n/* The functions themselves at last */\n")
         for f in list(self.func.keys()):
-            if self.ignore(f):
+            if self.should_ignore_function(f):
                 continue
             self.generate_function(f, out)
 
@@ -1289,34 +1170,35 @@ class ShellCodeGenerator(CodeGenerator):
         out.write("int shell_" + function + "(int argc, char **argv);\n")
 
     def generate_function(self, function, out):
-        params = self.parse_params(function)
+        params = self.get_parameters_for_function(function)
 
         # Check types, also enumerate them
         args = OrderedDict()
-        for p in list(params.keys()):
-            tname = params[p]["type"]
-            if tname not in list(self.types.keys()):
+        for p in params:
+            tname = params[p].type
+            if tname not in self.types:
                 print("W: Unknown type encountered:", tname)
                 return
 
-            params[p].setdefault("mode", "IN")
             t = self.types[tname]
-            mode = params[p]["mode"]
+            mode = params[p].mode
             if "INCONV" in t or "OUTCONV" in t:
-                args[p] = params[p].copy()
+                args[p] = params[p].as_dict()
                 args[p]["shell_no"] = len(args) - 1
-                if mode == "INOUT":
+                if mode is ParamMode.INOUT:
                     args[p]["mode"] = "IN"
-                    args[p + "-out"] = params[p].copy()
+                    args[p + "-out"] = params[p].as_dict()
                     args[p + "-out"]["mode"] = "OUT"
                     args[p + "-out"]["shell_no"] = len(args) - 1
                     if "INCONV" not in t or "IN" not in t["INCONV"]:
                         print("Warning: no INCONV for type", tname, ", mode IN")
                     if "OUTCONV" not in t or "OUT" not in t["OUTCONV"]:
                         print("Warning: no OUTCONV for type", tname, ", mode OUT")
-            if mode == "IN" and ("INCONV" not in t or mode not in t["INCONV"]):
+            if mode is ParamMode.IN and ("INCONV" not in t or mode not in t["INCONV"]):
                 print("Warning: no INCONV for type", tname, ", mode", mode)
-            if mode == "OUT" and ("OUTCONV" not in t or mode not in t["OUTCONV"]):
+            if mode is ParamMode.OUT and (
+                "OUTCONV" not in t or mode not in t["OUTCONV"]
+            ):
                 print("Warning: no OUTCONV for type", tname, ", mode", mode)
 
         res: Dict[str, Any] = {"nargs": len(args)}
@@ -1394,25 +1276,25 @@ int shell_%(func)s(int argc, char **argv) {
     def chunk_args(self, function, params):
         res = [
             ['"' + n + '"', "required_argument", "0", str(p["shell_no"])]
-            for n, p in list(params.items())
+            for n, p in params.items()
         ]
         res = ["{ " + ",".join(e) + " }," for e in res]
         return "\n                                   ".join(res)
 
-    def chunk_decl(self, function, params):
+    def chunk_decl(self, function, params: Dict[str, ParamSpec]):
         def do_par(pname):
-            t = self.types[params[pname]["type"]]
+            t = self.types[params[pname].type]
             if "DECL" in t:
                 decl = "  " + t["DECL"].replace("%C%", pname)
             elif "CTYPE" in t:
                 decl = "  " + t["CTYPE"] + " " + pname
             else:
                 decl = ""
-            if "default" in params[pname]:
-                if "DEFAULT" in t and params[pname]["default"] in t["DEFAULT"]:
-                    default = "=" + t["DEFAULT"][params[pname]["default"]]
+            if params[pname].default is not None:
+                if "DEFAULT" in t and params[pname].default in t["DEFAULT"]:
+                    default = "=" + t["DEFAULT"][params[pname].default]
                 else:
-                    default = "=" + params[pname]["default"]
+                    default = "=" + str(params[pname].default)
             else:
                 default = ""
             if decl:
@@ -1422,9 +1304,7 @@ int shell_%(func)s(int argc, char **argv) {
 
         decl = [do_par(n) for n in list(params.keys())]
         inout = [
-            "  char* shell_arg_" + n + "=0;"
-            for n, p in list(params.items())
-            if p["mode"] in ["INOUT", "OUT"]
+            "  char* shell_arg_" + n + "=0;" for n, p in params.items() if p.is_output
         ]
         rt = self.types[self.func[function]["RETURN"]]
         if "DECL" in rt:
@@ -1454,8 +1334,8 @@ int shell_%(func)s(int argc, char **argv) {
 
     def chunk_inconv(self, function, params):
         def do_par(pname):
-            t = self.types[params[pname]["type"]]
-            mode = params[pname]["mode"]
+            t = self.types[params[pname].type]
+            mode = params[pname].mode_str
             if "INCONV" in t and mode in t["INCONV"]:
                 inconv = "" + t["INCONV"][mode]
             else:
@@ -1466,7 +1346,7 @@ int shell_%(func)s(int argc, char **argv) {
 
         inconv = [
             "    case " + str(p["shell_no"]) + ": /* " + n + " */\n      " + do_par(n)
-            for n, p in list(params.items())
+            for n, p in params.items()
         ]
         inconv = [n + "\n      break;" for n in inconv]
         inconv = ["".join(n) for n in inconv]
@@ -1483,15 +1363,15 @@ int shell_%(func)s(int argc, char **argv) {
         return text
 
     def chunk_call(self, function, params):
-        types = [self.types[params[n]["type"]] for n in list(params.keys())]
+        types = [self.types[params[n].type] for n in list(params.keys())]
         call = list(map(lambda t, n: t.get("CALL", n), types, list(params.keys())))
         call = list(map(lambda c, n: c.replace("%C%", n), call, list(params.keys())))
         return "  shell_result=" + function + "(" + ", ".join(call) + ");"
 
     def chunk_outconv(self, function, params):
         def do_par(pname):
-            t = self.types[params[pname]["type"]]
-            mode = params[pname]["mode"]
+            t = self.types[params[pname].type]
+            mode = params[pname].mode_str
             if "OUTCONV" in t and mode in t["OUTCONV"]:
                 outconv = "  " + t["OUTCONV"][mode]
             else:
