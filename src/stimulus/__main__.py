@@ -1,9 +1,9 @@
-from typing import Callable
-
-import getopt
 import logging
 import os
 import sys
+
+from argparse import ArgumentParser
+from typing import Callable
 
 from .generators.base import CodeGenerator
 from .generators.java import JavaCCodeGenerator, JavaJavaCodeGenerator  # noqa
@@ -39,62 +39,87 @@ def has_code_generator_class_for_language(lang: str) -> bool:
         return False
 
 
+def create_argument_parser() -> ArgumentParser:
+    parser = ArgumentParser()
+
+    parser.add_argument(
+        "-t",
+        "--types",
+        metavar="FILE",
+        help="use the given type definition FILE",
+        nargs="*",
+    )
+
+    parser.add_argument(
+        "-f",
+        "--functions",
+        metavar="FILE",
+        help="use the given function definition FILE",
+        nargs="*",
+    )
+
+    parser.add_argument(
+        "-l",
+        "--language",
+        metavar="LANGUAGE",
+        help="generate code in the given LANGUAGE",
+        nargs="*",
+    )
+
+    parser.add_argument(
+        "-i",
+        "--input",
+        metavar="FILE",
+        help="read input from the given FILE",
+        nargs="*",
+    )
+
+    parser.add_argument(
+        "-o",
+        "--output",
+        metavar="FILE",
+        help="write output to the given FILE. Use '-' for standard output.",
+        nargs="*",
+    )
+
+    return parser
+
+
 def main():
     logging.basicConfig(
         format="%(levelname)-10s| %(message)s", level=logging.INFO, stream=sys.stderr
     )
 
-    # Command line arguments
-    try:
-        optlist, args = getopt.getopt(sys.argv[1:], "t:f:l:i:o:h", ["help"])
-    except getopt.GetoptError:
-        usage()
-        sys.exit(2)
+    parser = create_argument_parser()
+    options = parser.parse_args()
 
-    type_files = []
-    function_files = []
-    inputs = []
-    languages = []
-    outputs = []
-
-    for o, a in optlist:
-        if o in ("-h", "--help"):
-            usage()
-            sys.exit()
-        elif o == "-o":
-            outputs.append(a)
-        elif o == "-t":
-            type_files.append(a)
-        elif o == "-f":
-            function_files.append(a)
-        elif o == "-l":
-            languages.append(a)
-        elif o == "-i":
-            inputs.append(a)
+    type_files = options.types
+    function_files = options.functions
+    inputs = options.input
+    languages = options.language
+    outputs = options.output
 
     # Parameter checks
     # Note: the lists might be empty, but languages and outputs must
     # have the same length.
     if len(languages) != len(outputs):
-        print("Error: number of languages and output files must match")
-        sys.exit(4)
+        parser.error("Number of languages and output files must match")
+
     for language in languages:
         if not has_code_generator_class_for_language(language):
-            print("Error: unknown language:", language)
-            sys.exit(6)
-    for f in type_files:
-        if not os.access(f, os.R_OK):
-            print("Error: cannot open type file:", f)
-            sys.exit(5)
+            parser.error(f"Unknown language: {language}")
+
+    for path in type_files:
+        if not os.access(path, os.R_OK):
+            parser.error(f"Cannot open type file: {path}")
+
     for path in function_files:
-        if not os.access(f, os.R_OK):
-            print("Error: cannot open function file:", f)
-            sys.exit(5)
-    for f in inputs:
-        if not os.access(f, os.R_OK):
-            print("Error: cannot open input file:", f)
-            sys.exit(5)
-    # TODO: output files are not checked now
+        if not os.access(path, os.R_OK):
+            parser.error(f"Error: cannot open function file: {path}")
+
+    for path in inputs:
+        if not os.access(path, os.R_OK):
+            parser.error("Error: cannot open input file: {path}")
 
     # Construct a log that the generators can write their messages to
     log = logging.getLogger()
