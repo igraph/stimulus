@@ -1,5 +1,6 @@
 from abc import abstractmethod, ABCMeta
 from collections import OrderedDict
+from typing import Any, Dict
 
 import getopt
 import os
@@ -20,6 +21,14 @@ def usage():
 
 ################################################################################
 ################################################################################
+
+
+def get_code_generator_class_for_language(lang: str):
+    return globals()[f"{lang}CodeGenerator"]
+
+
+def has_code_generator_class_for_language(lang: str) -> bool:
+    return f"{lang}CodeGenerator" in globals()
 
 
 def main():
@@ -58,7 +67,7 @@ def main():
         print("Error: number of languages and output files must match")
         sys.exit(4)
     for language in languages:
-        if not language + "CodeGenerator" in globals():
+        if not has_code_generator_class_for_language(language):
             print("Error: unknown language:", language)
             sys.exit(6)
     for f in types:
@@ -77,9 +86,9 @@ def main():
 
     # OK, do the trick:
     for language, output in zip(languages, outputs):
-        cl = globals()[language + "CodeGenerator"]
-        cg = cl(functions, types)
-        cg.generate(inputs, output)
+        cls = get_code_generator_class_for_language(language)
+        generator = cls(functions, types)
+        generator.generate(inputs, output)
 
 
 ################################################################################
@@ -97,14 +106,14 @@ class CodeGenerator(metaclass=ABCMeta):
         for f in func:
             ff = open(f, "rU")
             newfunc = parser.parse(ff)
-            self.func.extend(newfunc)
+            self.func.update(newfunc)
             ff.close()
 
         self.types = OrderedDict()
         for t in types:
             ff = open(t, "rU")
             newtypes = parser.parse(ff)
-            self.types.extend(newtypes)
+            self.types.update(newtypes)
             ff.close()
 
         # The default return type is 'ERROR'
@@ -198,9 +207,6 @@ class CodeGenerator(metaclass=ABCMeta):
 
 
 class RNamespaceCodeGenerator(CodeGenerator):
-    def __init__(self, func, types):
-        CodeGenerator.__init__(self, func, types)
-
     def generate(self, inputs, output):
         """This is very simple, we include an 'export' line for every
         function which it not to be ignored by the RNamespace language.
@@ -219,9 +225,6 @@ class RNamespaceCodeGenerator(CodeGenerator):
 
 
 class RRCodeGenerator(CodeGenerator):
-    def __init__(self, func, types):
-        CodeGenerator.__init__(self, func, types)
-
     def generate_function(self, function, out):
 
         # Ignore?
@@ -469,9 +472,6 @@ class RRCodeGenerator(CodeGenerator):
 
 
 class RCCodeGenerator(CodeGenerator):
-    def __init__(self, func, types):
-        CodeGenerator.__init__(self, func, types)
-
     def generate_function(self, function, out):
 
         # Ignore?
@@ -772,10 +772,8 @@ class JavaCodeGenerator(CodeGenerator):
 
     package = "net.sf.igraph"
 
-    def __init__(self, func, types):
-        CodeGenerator.__init__(self, func, types)
-
-    def camelcase(s):
+    @staticmethod
+    def camelcase(s: str) -> str:
         """Returns a camelCase version of the given string (as used in Java
         libraries"""
         parts = s.split("_")
@@ -783,8 +781,6 @@ class JavaCodeGenerator(CodeGenerator):
         for part in parts:
             result.append(part.capitalize())
         return "".join(result)
-
-    camelcase = staticmethod(camelcase)
 
     def get_function_metadata(self, f, type_param="JAVATYPE"):
         """Returns metadata for the given function based on the parameters.
@@ -1323,7 +1319,7 @@ class ShellCodeGenerator(CodeGenerator):
             if mode == "OUT" and ("OUTCONV" not in t or mode not in t["OUTCONV"]):
                 print("Warning: no OUTCONV for type", tname, ", mode", mode)
 
-        res = {"nargs": len(args)}
+        res: Dict[str, Any] = {"nargs": len(args)}
         res["func"] = function
         res["args"] = self.chunk_args(function, args)
         res["decl"] = self.chunk_decl(function, params)
