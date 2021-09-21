@@ -2,8 +2,9 @@ from abc import abstractmethod, ABCMeta
 from collections import OrderedDict
 from dataclasses import dataclass
 from enum import Enum
+from logging import Logger
 from pathlib import Path
-from typing import Any, Dict, IO, Iterable, List, Optional, Tuple
+from typing import Any, Dict, IO, Iterable, List, Optional, Sequence, Tuple
 
 from stimulus.parser import Parser
 
@@ -67,6 +68,13 @@ class CodeGenerator(metaclass=ABCMeta):
         """
         raise NotImplementedError
 
+    @abstractmethod
+    def use_logger(self, log: Logger) -> None:
+        """Instructs the code generator to log any issues that it finds during
+        code generation to the given logger.
+        """
+        raise NotImplementedError
+
 
 class ParamMode(Enum):
     """Enum representing the modes of function parameters."""
@@ -107,9 +115,19 @@ class ParamSpec:
         return str(self.mode.value).upper()
 
 
+def _nop(*args, **kwds) -> None:
+    pass
+
+
+class _DummyLogger:
+    def __getattr__(self, name: str):
+        return _nop
+
+
 class CodeGeneratorBase(CodeGenerator):
     """Base class for code generator implementations."""
 
+    log: Logger
     name: str
     func: OrderedDict[str, Any]
     types: OrderedDict[str, Any]
@@ -125,6 +143,8 @@ class CodeGeneratorBase(CodeGenerator):
         # name
         self.name = type(self).__name__
         self.name = self.name[0 : len(self.name) - len("CodeGenerator")]
+
+        self.log = _DummyLogger()  # type: ignore
 
         self.func = OrderedDict()
         self.types = OrderedDict()
@@ -150,12 +170,15 @@ class CodeGeneratorBase(CodeGenerator):
     def load_type_rules_from_object(self, obj: Dict[str, Any]) -> None:
         self.types.update(obj)
 
-    def generate(self, inputs: Iterable[str], output: IO[str]) -> None:
+    def generate(self, inputs: Sequence[str], output: IO[str]) -> None:
         self.append_inputs(inputs, output)
-        for name, spec in self.func.items():
+        for name in self.iter_functions():
             self.generate_function(name, output)
 
-    def append_inputs(self, inputs: Iterable[str], output: IO[str]):
+    def use_logger(self, log: Logger) -> None:
+        self.log = log
+
+    def append_inputs(self, inputs: Sequence[str], output: IO[str]):
         """Appends the contents of the given input files to the given output
         stream.
 
@@ -168,7 +191,13 @@ class CodeGeneratorBase(CodeGenerator):
             output.write(contents)
 
     @abstractmethod
-    def generate_function(self, name: str, out_fp: IO[str]):
+    def generate_function(self, name: str, out: IO[str]) -> None:
+        """Processes the function with the given name and generates the
+        corresponding output on the output stream.
+
+        This function is _not_ called for functions that are deemed to be
+        ignored by `should_ignore_function()`.
+        """
         raise NotImplementedError
 
     def get_dependencies_for_function(self, name: str) -> Dict[str, Tuple[str, ...]]:
@@ -202,6 +231,17 @@ class CodeGeneratorBase(CodeGenerator):
         if result is None:
             self._param_cache[name] = result = self._parse_parameter_specification(name)
         return result
+
+    def iter_functions(self, include_ignored: bool = False) -> Iterable[str]:
+        """Iterator that yields the names of the functions in the function
+        specification that are _not_ to be ignored by this generator.
+        """
+        if include_ignored:
+            yield from self.func.keys()
+        else:
+            for name in self.func:
+                if not self.should_ignore_function(name):
+                    yield name
 
     def should_ignore_function(self, name: str) -> bool:
         """Returns whether the function with the given name should be ignored
