@@ -1,157 +1,24 @@
-import re
-import sys
+from abc import abstractmethod, ABCMeta
 from collections import OrderedDict
+
 import getopt
 import os
-import abc
+import re
+import sys
 
-version = "0.2"
-date = "Jan 13 2021"
+from .errors import StimulusError
+from .parser import Parser
+from .version import __version__
 
 
 def usage():
-    print("Stimulus version", version, date)
+    print(f"Stimulus {__version__}")
     print(sys.argv[0], "-f <function-file> -t <type-file> -l language ")
     print(" " * len(sys.argv[0]), "-i <input-file> -o <output-file>")
     print(" " * len(sys.argv[0]), "-h --help -v")
 
 
 ################################################################################
-class StimulusError(Exception):
-    def __init__(self, message):
-        self.msg = message
-
-    def __str__(self):
-        return str(self.msg)
-
-
-################################################################################
-class PLexer:
-    def __init__(self, stream):
-        self.stream = stream
-        self.ws_stack = [0]
-        self.tokens = []
-        self.lineno = 0
-
-    def lineno(self):
-        return self.lineno
-
-    def token(self):
-        keys = []
-
-        if len(self.tokens) > 0:
-            return self.tokens.pop(0)
-
-        # Read a line, skip empty lines and comments
-        while True:
-            line = self.stream.readline()
-            self.lineno = self.lineno + 1
-            if line == "":
-                for k in keys:
-                    self.tokens.append(("key", k))
-                    keys = []
-                while len(self.ws_stack) > 0:
-                    self.tokens.append(("dedent", ""))
-                    self.ws_stack.pop()
-                self.tokens.append(("eof", ""))
-                return self.tokens.pop(0)
-            if re.match("^[ \t]*$", line):
-                continue
-            if re.match("^[ \t]*#", line):
-                continue
-            break
-
-        if line[-1] == "\n":
-            line = line[: (len(line) - 1)]
-        ws = re.match(r"^[ \t]*", line).span()[1]
-        line = line.strip()
-        if ws > self.ws_stack[-1]:
-            self.tokens.append(("indent", ""))
-            self.ws_stack.append(ws)
-        else:
-            for k in keys:
-                self.tokens.append(("key", k))
-                keys = []
-            while ws < self.ws_stack[-1]:
-                self.ws_stack.pop()
-                self.tokens.append(("dedent", ""))
-            if ws != self.ws_stack[-1]:
-                print("Bad indentation in line", self.lineno)
-                exit
-
-        # Ok, we're done with the white space, now let's see
-        # whether this line is continued
-        while line[-1] == "\\":
-            line = line[: (len(line) - 1)]
-            line = line + "\n  " + self.stream.readline().strip()
-            self.lineno = self.lineno + 1
-
-        # We have the line now, check whether there is a ':' in it
-        line = line.split(":", 1)
-        if len(line) > 1:
-            line[0] = line[0].strip()
-            line[1] = line[1].strip()
-            if line[0] == "":
-                print("Missing keyword in line", self.lineno)
-                exit
-            keys = line[0].split(",")
-            keys = [k.strip() for k in keys]
-            if line[1] == "":
-                self.tokens.append(("key", keys.pop(0)))
-            else:
-                for k in keys:
-                    self.tokens.append(("key", k))
-                    self.tokens.append(("indent", ""))
-                    self.tokens.append(("text", line[1]))
-                    self.tokens.append(("dedent", ""))
-        else:
-            self.tokens.append(("text", line[0].strip()))
-            for k in keys:
-                self.tokens.append(("dedent", ""))
-                self.tokens.append(("key", k))
-                self.tokens.append(("indent", ""))
-            keys = []
-
-        if self.tokens:
-            return self.tokens.pop(0)
-
-
-################################################################################
-class PParser:
-    def parse(self, stream):
-        lex = PLexer(stream)
-        val = OrderedDict()
-        val_stack = [val, None]
-        nam_stack = [None, None]
-
-        tok = lex.token()
-        while not tok[0] == "eof":
-            if tok[0] == "indent":
-                val_stack.append(None)
-                nam_stack.append(None)
-            elif tok[0] == "dedent":
-                v = val_stack.pop()
-                n = nam_stack.pop()
-                if n is None:
-                    val_stack[-1] = v
-                else:
-                    val_stack[-1][n] = v
-            elif tok[0] == "key":
-                if not nam_stack[-1] is None:
-                    val_stack[-2][nam_stack[-1]] = val_stack[-1]
-                if tok[1][-5:] == "-list":
-                    val_stack[-1] = OrderedDict()
-                    nam_stack[-1] = tok[1][:-5]
-                else:
-                    val_stack[-1] = {}
-                    nam_stack[-1] = tok[1]
-            elif tok[0] == "text":
-                val_stack[-1] = tok[1]
-            tok = lex.token()
-
-        return val
-
-
 ################################################################################
 
 
@@ -216,7 +83,7 @@ def main():
 
 
 ################################################################################
-class CodeGenerator(metaclass=abc.ABCMeta):
+class CodeGenerator(metaclass=ABCMeta):
     def __init__(self, func, types):
         # Set name, note this only works correctly if derived classes always
         # extend it as by prepending the language to the CodeGenerator class
@@ -225,7 +92,7 @@ class CodeGenerator(metaclass=abc.ABCMeta):
         self.name = self.name[0 : len(self.name) - len("CodeGenerator")]
 
         # Parse function and type files
-        parser = PParser()
+        parser = Parser()
         self.func = OrderedDict()
         for f in func:
             ff = open(f, "rU")
@@ -258,7 +125,7 @@ class CodeGenerator(metaclass=abc.ABCMeta):
             self.generate_function(f, out)
         out.close()
 
-    @abc.abstractmethod
+    @abstractmethod
     def generate_function(self, f, out):
         raise NotImplementedError(
             "Error: invalid code generator, this method should be overridden"
