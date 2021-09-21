@@ -7,7 +7,7 @@ from typing import Any, Dict, IO, Sequence
 
 from stimulus.errors import StimulusError
 
-from .base import CodeGeneratorBase, ParamMode
+from .base import CodeGeneratorBase, ParamMode, ParamSpec
 
 
 def camelcase(s: str) -> str:
@@ -42,12 +42,13 @@ class JavaCodeGenerator(CodeGeneratorBase):
         - is_static: whether the function is static
         - is_constructor: whether the function is a constructor
         """
+        spec = self._get_function_spec(name)
         params = self.get_parameters_for_function(name)
         is_constructor = False
 
         # We will collect data related to the current function in a dict
         data = {}
-        data["name"] = self.func[name].get("NAME-JAVA", camelcase(name[7:]))
+        data["name"] = spec.get("NAME-JAVA", camelcase(name[7:]))
         data["java_modifiers"] = ["public"]
 
         # Check parameter types to determine Java calling semantics
@@ -63,12 +64,10 @@ class JavaCodeGenerator(CodeGeneratorBase):
                 return_type_name = types["OUT"][0].type
             else:
                 return_type_name = types["INOUT"][0].type
-        elif (
-            len(types["OUT"]) + len(types["INOUT"]) == 0 and "RETURN" in self.func[name]
-        ):
+        elif len(types["OUT"]) + len(types["INOUT"]) == 0 and "RETURN" in spec:
             # There are only input parameters and the return type is specified,
             # this also fits the Java semantics
-            return_type_name = self.func[name]["RETURN"]
+            return_type_name = spec["RETURN"]
         else:
             raise StimulusError(
                 "{}: calling convention unsupported yet".format(data["name"])
@@ -151,7 +150,7 @@ class JavaJavaCodeGenerator(JavaCodeGenerator):
 
 
 class JavaCCodeGenerator(JavaCodeGenerator):
-    def generate_function(self, function, out):
+    def generate_function(self, function: str, out: IO[str]) -> None:
         try:
             self.metadata = self.get_function_metadata(function, "CTYPE")
         except StimulusError as e:
@@ -214,7 +213,7 @@ class JavaCCodeGenerator(JavaCodeGenerator):
 
         out.write(text)
 
-    def chunk_header(self, function, params):
+    def chunk_header(self, function: str, params: Dict[str, ParamSpec]) -> str:
         """The header.
 
         The name of the function is the igraph function name minus the
@@ -243,7 +242,7 @@ class JavaCCodeGenerator(JavaCodeGenerator):
         res = "JNIEXPORT %(return_type)s JNICALL %(funcname)s(%(types)s)" % data
         return res
 
-    def chunk_declaration(self, function, params):
+    def chunk_declaration(self, function: str, params: Dict[str, ParamSpec]) -> str:
         """The declaration part of the function body
 
         There are a couple of things to declare. First a C type is
@@ -255,6 +254,8 @@ class JavaCCodeGenerator(JavaCodeGenerator):
         if the method is not static but we are returning a new Graph object
         (e.g. in the case of igraph_linegraph), we need a jclass variable
         to store the Java class object."""
+
+        spec = self._get_function_spec(function)
 
         def do_cpar(pname):
             cname = "c_" + pname
@@ -278,10 +279,10 @@ class JavaCCodeGenerator(JavaCodeGenerator):
                 decl = ""
             return decl.replace("%J%", jname).replace("%I%", pname)
 
-        inout = [do_cpar(n) for n in params.keys()]
+        inout = [do_cpar(n) for n in params]
         out = [do_jpar(n) for n, p in params.items() if p.mode is ParamMode.OUT]
 
-        rt = self.types[self.func[function]["RETURN"]]
+        rt = self.types[spec["RETURN"]]
         if "CDECL" in rt:
             retdecl = "  " + rt["CDECL"]
         elif "CTYPE" in rt:
@@ -295,7 +296,7 @@ class JavaCCodeGenerator(JavaCodeGenerator):
             n = rnames[0]
             rtname = params[n].type
         else:
-            rtname = self.func[function]["RETURN"]
+            rtname = spec["RETURN"]
         rt = self.types[rtname]
         if "JAVADECL" in rt:
             jretdecl = "  " + rt["JAVADECL"]
@@ -313,11 +314,11 @@ class JavaCCodeGenerator(JavaCodeGenerator):
             self.metadata["need_class_decl"] = False
         return "\n".join([i for i in decls if i != ""])
 
-    def chunk_before(self, function, params):
+    def chunk_before(self, function: str, params: Dict[str, ParamSpec]) -> str:
         """We simply call Java_igraph_before"""
         return "  Java_igraph_before();"
 
-    def chunk_inconv(self, function, params):
+    def chunk_inconv(self, function: str, params: Dict[str, ParamSpec]) -> str:
         """Input conversions. Not only for types with mode 'IN' and
         'INOUT', eg. for 'OUT' vector types we need to allocate the
         required memory here, do all the initializations, etc. Types
@@ -341,7 +342,7 @@ class JavaCCodeGenerator(JavaCodeGenerator):
 
             return inconv.replace("%C%", cname).replace("%I%", pname)
 
-        inconv = [do_par(n) for n in params.keys()]
+        inconv = [do_par(n) for n in params]
         inconv = [i for i in inconv if i != ""]
 
         return "\n".join(inconv)
@@ -352,7 +353,7 @@ class JavaCCodeGenerator(JavaCodeGenerator):
         usual %C% and %I% substitutions, otherwise the standard 'c_'
         prefixed C argument name is used.
         """
-        types = [self.types[params[n].type] for n in params.keys()]
+        types = [self.types[params[n].type] for n in params]
         call = list(
             map(lambda t, n: t.get("CALL", "c_" + n), types, list(params.keys()))
         )
@@ -372,7 +373,7 @@ class JavaCCodeGenerator(JavaCodeGenerator):
         ]
         return "\n".join(lines)
 
-    def chunk_outconv(self, function, params):
+    def chunk_outconv(self, function: str, params: Dict[str, ParamSpec]) -> str:
         """The output conversions, this is quite difficult. A function
         may report its results in two ways: by returning it directly
         or by setting a variable to which a pointer was passed. igraph
@@ -395,6 +396,8 @@ class JavaCCodeGenerator(JavaCodeGenerator):
         the Java interface.
         """
 
+        spec = self._get_function_spec(function)
+
         def do_par(pname):
             cname = "c_" + pname
             jname = "j_" + pname
@@ -406,13 +409,13 @@ class JavaCCodeGenerator(JavaCodeGenerator):
                 outconv = ""
             return outconv.replace("%C%", cname).replace("%I%", jname)
 
-        outconv = [do_par(n) for n in params.keys()]
+        outconv = [do_par(n) for n in params]
         outconv = [o for o in outconv if o != ""]
 
         retpars = [(n, p) for n, p in params.items() if p.is_output]
         if len(retpars) == 0:
             # return the return value of the function
-            rt = self.types[self.func[function]["RETURN"]]
+            rt = self.types[spec["RETURN"]]
             if "OUTCONV" in rt:
                 retconv = "  " + rt["OUTCONV"]["OUT"]
             else:

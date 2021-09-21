@@ -129,8 +129,9 @@ class CodeGeneratorBase(CodeGenerator):
 
     log: Logger
     name: str
-    func: OrderedDict[str, Any]
     types: OrderedDict[str, Any]
+
+    _func_specs: OrderedDict[str, Any]
 
     _deps_cache: Dict[str, Dict[str, Tuple[str, ...]]]
     _ignore_cache: Dict[str, bool]
@@ -146,7 +147,7 @@ class CodeGeneratorBase(CodeGenerator):
 
         self.log = _DummyLogger()  # type: ignore
 
-        self.func = OrderedDict()
+        self._func_specs = OrderedDict()
         self.types = OrderedDict()
 
         self._deps_cache = {}
@@ -160,7 +161,7 @@ class CodeGeneratorBase(CodeGenerator):
 
     def load_function_rules_from_object(self, obj: Dict[str, Any]) -> None:
         self._preprocess_function_rules(obj)
-        self.func.update(obj)
+        self._func_specs.update(obj)
 
     def load_type_rules_from_file(self, filename: str) -> None:
         with open(filename) as fp:
@@ -237,9 +238,9 @@ class CodeGeneratorBase(CodeGenerator):
         specification that are _not_ to be ignored by this generator.
         """
         if include_ignored:
-            yield from self.func.keys()
+            yield from self._func_specs.keys()
         else:
-            for name in self.func:
+            for name in self._func_specs:
                 if not self.should_ignore_function(name):
                     yield name
 
@@ -262,7 +263,7 @@ class CodeGeneratorBase(CodeGenerator):
         return result
 
     def _get_function_spec(self, name: str) -> Dict[str, Any]:
-        return self.func[name]
+        return self._func_specs[name]
 
     @staticmethod
     def _preprocess_function_rules(specs: Dict[str, Any]):

@@ -192,11 +192,12 @@ int shell_%(func)s(int argc, char **argv) {
             else:
                 return ""
 
-        decl = [do_par(n) for n in params.keys()]
+        decl = [do_par(n) for n in params]
         inout = [
             "  char* shell_arg_" + n + "=0;" for n, p in params.items() if p.is_output
         ]
-        rt = self.types[self.func[name]["RETURN"]]
+        spec = self._get_function_spec(name)
+        rt = self.types[spec["RETURN"]]
         if "DECL" in rt:
             retdecl = "  " + rt["DECL"]
         elif "CTYPE" in rt:
@@ -204,7 +205,7 @@ int shell_%(func)s(int argc, char **argv) {
         else:
             retdecl = ""
 
-        if self.func[name]["RETURN"] != "ERROR":
+        if spec["RETURN"] != "ERROR":
             retchar = '  char *shell_arg_shell_result="-";'
         else:
             retchar = ""
@@ -221,7 +222,7 @@ int shell_%(func)s(int argc, char **argv) {
                 res = ""
             return res
 
-        res = [do_par(n) for n in params.keys()]
+        res = [do_par(n) for n in params]
         res = [n for n in res if n != ""]
         return "\n".join(res)
 
@@ -276,6 +277,8 @@ int shell_%(func)s(int argc, char **argv) {
         return f"  shell_result = {func_name}({call});"
 
     def chunk_outconv(self, name: str, params: Dict[str, ParamSpec]) -> str:
+        spec = self._get_function_spec(name)
+
         def do_par(pname):
             t = self.types[params[pname].type]
             mode = params[pname].mode_str
@@ -287,8 +290,8 @@ int shell_%(func)s(int argc, char **argv) {
                 pname = pname[0:-4]
             return outconv.replace("%C%", pname)
 
-        outconv = [do_par(n) for n in params.keys()]
-        rt = self.types[self.func[name]["RETURN"]]
+        outconv = [do_par(n) for n in params]
+        rt = self.types[spec["RETURN"]]
         if "OUTCONV" in rt and "OUT" in rt["OUTCONV"]:
             rtout = "  " + rt["OUTCONV"]["OUT"]
         else:
