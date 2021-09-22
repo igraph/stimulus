@@ -14,7 +14,7 @@ from .base import CodeGeneratorBase, ParamMode, ParamSpec
 
 class RRCodeGenerator(CodeGeneratorBase):
     def generate_function(self, function: str, out: IO[str]) -> None:
-        spec = self._get_function_spec(function)
+        spec = self.get_function_descriptor(function)
 
         name = spec.get("NAME-R", function[1:].replace("_", "."))
         params = self.get_parameters_for_function(function)
@@ -27,7 +27,7 @@ class RRCodeGenerator(CodeGeneratorBase):
                 raise StimulusError("Unknown type encountered: {tname!r}")
 
         # Get function specification
-        spec = self._get_function_spec(function)
+        spec = self.get_function_descriptor(function)
 
         ## Roxygen to export the function
         internal = spec.get("INTERNAL")
@@ -67,18 +67,13 @@ class RRCodeGenerator(CodeGeneratorBase):
                 else:
                     default = "=" + str(params[pname].default)
             header = header + default
-            if pname in list(self.deps.keys()):
+            if pname in self.deps:
                 deps = self.deps[pname]
                 for i, dep in enumerate(deps):
                     header = header.replace("%I" + str(i + 1) + "%", dep)
             if re.search("%I[0-9]*%", header):
-                print(
-                    "Error: Missing HEADER dependency for "
-                    + tname
-                    + " "
-                    + pname
-                    + " in function "
-                    + name
+                self.log.error(
+                    f"Missing HEADER dependency for {tname} {pname} in function {name}"
                 )
             return header
 
@@ -115,20 +110,13 @@ class RRCodeGenerator(CodeGeneratorBase):
                 res = ""
             res = res.replace("%I%", pname.replace("_", "."))
 
-            if pname in list(self.deps.keys()):
+            if pname in self.deps:
                 deps = self.deps[pname]
                 for i, dep in enumerate(deps):
                     res = res.replace("%I" + str(i + 1) + "%", dep)
             if re.search("%I[0-9]*%", res):
-                print(
-                    (
-                        "Error: Missing IN dependency for "
-                        + tname
-                        + " "
-                        + pname
-                        + " in function "
-                        + name
-                    )
+                self.log.error(
+                    f"Missing IN dependency for {tname} {pname} in function {name}"
                 )
             return res
 
@@ -141,28 +129,25 @@ class RRCodeGenerator(CodeGeneratorBase):
         ## each argument to the .Call function, if the argument has a
         ## 'CALL' field then it is used, otherwise we simply use its
         ## name.
-        ## argument. Note that arguments with empty CALL fields are
+        ##
+        ## Note that arguments with empty CALL fields are
         ## completely ignored, so giving an empty CALL field is
         ## different than not giving it at all.
-
-        ## Function call
-        def handle_function_call(pname):
-            t = self.types[params[pname].type]
-            call = pname.replace("_", ".")
-            if "CALL" in t:
-                call = t["CALL"]
-                if call:
-                    call = call.replace("%I%", pname.replace("_", "."))
-                else:
-                    call = ""
-            return call
 
         out.write("  on.exit( .Call(C_R_igraph_finalizer) )\n")
         out.write("  # Function call\n")
         out.write("  res <- .Call(C_R_" + function + ", ")
-        call = [handle_function_call(n) for n, p in params.items() if p.is_input]
-        call = [c for c in call if c != ""]
-        out.write(", ".join(call))
+
+        parts = []
+        for name, param in params.items():
+            if param.is_input:
+                type = self.types[param.type]
+                name = name.replace("_", ".")
+                call = type.get("CALL", name)
+                if call:
+                    parts.append(call.replace("%I%", name))
+
+        out.write(", ".join(parts))
         out.write(")\n")
 
         ## Output conversions
@@ -178,22 +163,13 @@ class RRCodeGenerator(CodeGeneratorBase):
                 outconv = ""
             outconv = outconv.replace("%I%", iprefix + realname)
 
-            if pname in list(self.deps.keys()):
+            if pname in self.deps:
                 deps = self.deps[pname]
                 for i, dep in enumerate(deps):
                     outconv = outconv.replace("%I" + str(i + 1) + "%", dep)
             if re.search("%I[0-9]*%", outconv):
-                print(outconv)
-                print(self.deps)
-                print(
-                    (
-                        "Error: Missing OUT dependency for "
-                        + tname
-                        + " "
-                        + pname
-                        + " in function "
-                        + name
-                    )
+                self.log.error(
+                    f"Missing OUT dependency for {tname} {pname} in function {name}"
                 )
             return re.sub("%I[0-9]+%", "", outconv)
 
@@ -208,7 +184,7 @@ class RRCodeGenerator(CodeGeneratorBase):
 
         if len(retpars) == 0:
             # returning the return value of the function
-            rt = self.types[spec["RETURN"]]
+            rt = self.types[spec.return_type]
             if "OUTCONV" in rt:
                 retconv = "  " + rt["OUTCONV"]["OUT"]
             else:
@@ -264,7 +240,7 @@ class RCCodeGenerator(CodeGeneratorBase):
         for p in params:
             tname = params[p].type
             if tname not in self.types:
-                print("Error: Unknown type " + tname + " in " + function)
+                self.log.error(f"Unknown type {tname} in {function}")
                 return
 
         ## Compile the output
@@ -334,7 +310,7 @@ class RCCodeGenerator(CodeGeneratorBase):
         final result, these are last. ('names' is not always used, but
         it is easier to always declare it.)
         """
-        spec = self._get_function_spec(function)
+        spec = self.get_function_descriptor(function)
 
         def do_par(pname):
             cname = "c_" + pname
@@ -359,7 +335,7 @@ class RCCodeGenerator(CodeGeneratorBase):
 
         retpars = [n for n, p in params.items() if p.is_output]
 
-        rt = self.types[spec["RETURN"]]
+        rt = self.types[spec.return_type]
         if "DECL" in rt:
             retdecl = "  " + rt["DECL"]
         elif "CTYPE" in rt and len(retpars) == 0:
@@ -395,7 +371,7 @@ class RCCodeGenerator(CodeGeneratorBase):
             else:
                 inconv = ""
 
-            if pname in list(self.deps.keys()):
+            if pname in self.deps:
                 deps = self.deps[pname]
                 for i, dep in enumerate(deps):
                     inconv = inconv.replace("%C" + str(i + 1) + "%", "c_" + dep)
@@ -414,34 +390,22 @@ class RCCodeGenerator(CodeGeneratorBase):
         prefixed C argument name is used.
         """
 
-        def docall(t, n):
-            if type(t) == dict:
-                mode = params[n].mode_str
-                if mode in t:
-                    return t[mode]
-                else:
-                    return ""
-            else:
-                return t
+        calls = []
+        for name, param in params.items():
+            type = self.types[param.type].get("CALL", "c_" + name)
 
-        types = [self.types[params[n].type] for n in params]
-        call = list(
-            map(
-                lambda t, n: docall(t.get("CALL", "c_" + n), n),
-                types,
-                list(params.keys()),
-            )
-        )
-        call = list(
-            map(
-                lambda c, n: c.replace("%C%", "c_" + n).replace("%I%", n),
-                call,
-                list(params.keys()),
-            )
-        )
-        retpars = [n for n, p in params.items() if p.is_output]
-        call = [c for c in call if c != ""]
-        res = "  " + function + "(" + ", ".join(call) + ");\n"
+            if isinstance(type, dict):
+                call = type.get(param.mode_str, "")
+            else:
+                call = type
+
+            if call:
+                call = call.replace("%C%", f"c_{name}").replace("%I%", name)
+                calls.append(call)
+
+        retpars = [name for name, param in params.items() if param.is_output]
+        calls = ", ".join(calls)
+        res = f"  {function}({calls});\n"
         if len(retpars) == 0:
             res = "  c_result=" + res
         return res
@@ -469,7 +433,7 @@ class RCCodeGenerator(CodeGeneratorBase):
         collected in a named list. The names come from the argument
         names.
         """
-        spec = self._get_function_spec(function)
+        spec = self.get_function_descriptor(function)
 
         def do_par(pname):
             cname = "c_" + pname
@@ -492,7 +456,7 @@ class RCCodeGenerator(CodeGeneratorBase):
         retpars = [n for n, p in params.items() if p.is_output]
         if len(retpars) == 0:
             # return the return value of the function
-            rt = self.types[spec["RETURN"]]
+            rt = self.types[spec.return_type]
             if "OUTCONV" in rt:
                 retconv = "  " + rt["OUTCONV"]["OUT"]
             else:

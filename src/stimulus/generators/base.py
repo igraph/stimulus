@@ -1,79 +1,31 @@
 from abc import abstractmethod, ABCMeta
 from collections import OrderedDict
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from enum import Enum
 from logging import Logger
 from pathlib import Path
-from typing import Any, Dict, IO, Iterable, List, Optional, Sequence, Tuple
+from typing import (
+    Any,
+    Dict,
+    IO,
+    Iterable,
+    List,
+    Mapping,
+    Optional,
+    Sequence,
+    Set,
+    Tuple,
+)
 
 from stimulus.parser import Parser
 
-__all__ = ("CodeGenerator", "CodeGeneratorBase")
-
-
-class CodeGenerator(metaclass=ABCMeta):
-    """Interface specification for code generators."""
-
-    name: str
-
-    @abstractmethod
-    def generate(self, inputs: List[str], output: IO[str]) -> None:
-        """Generates code from the given input files into the given output
-        stream, according to the function and type rules loaded into the
-        generator.
-
-        Parameters:
-            inputs: the list of input files to process
-            output: the output stream to write the generated code into
-        """
-        raise NotImplementedError
-
-    @abstractmethod
-    def load_function_rules_from_file(self, filename: str) -> None:
-        """Loads function specifications from the input file with the given name.
-
-        Parameters:
-            filename: the name of the input file
-        """
-        raise NotImplementedError
-
-    @abstractmethod
-    def load_function_rules_from_object(self, obj: Dict[str, Any]) -> None:
-        """Loads function specifications from the given object. The object is
-        typically parsed from a specification file, although it can also come
-        from other sources.
-
-        Parameters:
-            obj: the object to load the specifications from
-        """
-        raise NotImplementedError
-
-    @abstractmethod
-    def load_type_rules_from_file(self, filename: str) -> None:
-        """Loads type specifications from the input file with the given name.
-
-        Parameters:
-            filename: the name of the input file
-        """
-        raise NotImplementedError
-
-    @abstractmethod
-    def load_type_rules_from_object(self, obj: Dict[str, Any]) -> None:
-        """Loads type specifications from the given object. The object is
-        typically parsed from a specification file, although it can also come
-        from other sources.
-
-        Parameters:
-            obj: the object to load the specifications from
-        """
-        raise NotImplementedError
-
-    @abstractmethod
-    def use_logger(self, log: Logger) -> None:
-        """Instructs the code generator to log any issues that it finds during
-        code generation to the given logger.
-        """
-        raise NotImplementedError
+__all__ = (
+    "CodeGenerator",
+    "CodeGeneratorBase",
+    "FunctionDescriptor",
+    "ParamMode",
+    "ParamSpec",
+)
 
 
 class ParamMode(Enum):
@@ -115,6 +67,106 @@ class ParamSpec:
         return str(self.mode.value).upper()
 
 
+@dataclass
+class FunctionDescriptor(Mapping[str, Any]):
+    """Dataclass that describes a single function for which we can generate
+    related code in a code generator.
+    """
+
+    _obj: Dict[str, str] = field(default_factory=dict)
+
+    ignored_by: Set[str] = field(default_factory=set)
+    return_type: str = "ERROR"
+
+    def __getitem__(self, key: str) -> Any:
+        return self._obj[key]
+
+    def __iter__(self):
+        return iter(self._obj)
+
+    def __len__(self):
+        return len(self._obj)
+
+    def update_from(self, obj: Dict[str, str]) -> None:
+        """Updates the function descriptor from an object typically parsed from
+        a specification file.
+        """
+        self._obj.update(obj)
+
+        ignore: str = obj.get("IGNORE", "")
+        if ignore:
+            self.ignored_by = set(part.strip() for part in ignore.split(","))
+
+        return_type: str = obj.get("RETURN", "")
+        if return_type:
+            self.return_type = str(return_type)
+
+
+class CodeGenerator(metaclass=ABCMeta):
+    """Interface specification for code generators."""
+
+    name: str
+
+    @abstractmethod
+    def generate(self, inputs: List[str], output: IO[str]) -> None:
+        """Generates code from the given input files into the given output
+        stream, according to the function and type rules loaded into the
+        generator.
+
+        Parameters:
+            inputs: the list of input files to process
+            output: the output stream to write the generated code into
+        """
+        raise NotImplementedError
+
+    @abstractmethod
+    def load_function_descriptors_from_file(self, filename: str) -> None:
+        """Loads function descriptors from the input file with the given name.
+
+        Parameters:
+            filename: the name of the input file
+        """
+        raise NotImplementedError
+
+    @abstractmethod
+    def load_function_descriptors_from_object(self, obj: Dict[str, Any]) -> None:
+        """Loads function descriptors from the given object. The object is
+        typically parsed from a specification file, although it can also come
+        from other sources.
+
+        Parameters:
+            obj: the object to load the descriptors from
+        """
+        raise NotImplementedError
+
+    @abstractmethod
+    def load_type_descriptors_from_file(self, filename: str) -> None:
+        """Loads type descriptors from the input file with the given name.
+
+        Parameters:
+            filename: the name of the input file
+        """
+        raise NotImplementedError
+
+    @abstractmethod
+    def load_type_descriptors_from_object(self, obj: Dict[str, Any]) -> None:
+        """Loads type descriptors from the given object. The object is
+        typically parsed from a specification file, although it can also come
+        from other sources.
+
+        Parameters:
+            obj: the object to load the descriptors from
+        """
+        raise NotImplementedError
+
+    @abstractmethod
+    def use_logger(self, log: Logger) -> None:
+        """Instructs the code generator to log any issues that it finds during
+        code generation to the given logger.
+        """
+        raise NotImplementedError
+
+
 def _nop(*args, **kwds) -> None:
     pass
 
@@ -131,7 +183,7 @@ class CodeGeneratorBase(CodeGenerator):
     name: str
     types: OrderedDict[str, Any]
 
-    _func_specs: OrderedDict[str, Any]
+    _function_descriptors: OrderedDict[str, FunctionDescriptor]
 
     _deps_cache: Dict[str, Dict[str, Tuple[str, ...]]]
     _ignore_cache: Dict[str, bool]
@@ -147,28 +199,31 @@ class CodeGeneratorBase(CodeGenerator):
 
         self.log = _DummyLogger()  # type: ignore
 
-        self._func_specs = OrderedDict()
+        self._function_descriptors = OrderedDict()
         self.types = OrderedDict()
 
         self._deps_cache = {}
         self._ignore_cache = {}
         self._param_cache = {}
 
-    def load_function_rules_from_file(self, filename: str) -> None:
+    def load_function_descriptors_from_file(self, filename: str) -> None:
         with open(filename) as fp:
             specs = Parser().parse(fp)
-        self.load_function_rules_from_object(specs)
+        self.load_function_descriptors_from_object(specs)
 
-    def load_function_rules_from_object(self, obj: Dict[str, Any]) -> None:
-        self._preprocess_function_rules(obj)
-        self._func_specs.update(obj)
+    def load_function_descriptors_from_object(self, obj: Dict[str, Any]) -> None:
+        for name, spec in obj.items():
+            descriptor = self._function_descriptors.get(name)
+            if not descriptor:
+                self._function_descriptors[name] = descriptor = FunctionDescriptor()
+            descriptor.update_from(spec)
 
-    def load_type_rules_from_file(self, filename: str) -> None:
+    def load_type_descriptors_from_file(self, filename: str) -> None:
         with open(filename) as fp:
             specs = Parser().parse(fp)
-        self.load_type_rules_from_object(specs)
+        self.load_type_descriptors_from_object(specs)
 
-    def load_type_rules_from_object(self, obj: Dict[str, Any]) -> None:
+    def load_type_descriptors_from_object(self, obj: Dict[str, Any]) -> None:
         self.types.update(obj)
 
     def generate(self, inputs: Sequence[str], output: IO[str]) -> None:
@@ -179,7 +234,7 @@ class CodeGeneratorBase(CodeGenerator):
     def use_logger(self, log: Logger) -> None:
         self.log = log
 
-    def append_inputs(self, inputs: Sequence[str], output: IO[str]):
+    def append_inputs(self, inputs: Sequence[str], output: IO[str]) -> None:
         """Appends the contents of the given input files to the given output
         stream.
 
@@ -238,9 +293,9 @@ class CodeGeneratorBase(CodeGenerator):
         specification that are _not_ to be ignored by this generator.
         """
         if include_ignored:
-            yield from self._func_specs.keys()
+            yield from self._function_descriptors.keys()
         else:
-            for name in self._func_specs:
+            for name in self._function_descriptors:
                 if not self.should_ignore_function(name):
                     yield name
 
@@ -262,25 +317,11 @@ class CodeGeneratorBase(CodeGenerator):
             self._ignore_cache[name] = result = self._should_ignore_function(name)
         return result
 
-    def _get_function_spec(self, name: str) -> Dict[str, Any]:
-        return self._func_specs[name]
-
-    @staticmethod
-    def _preprocess_function_rules(specs: Dict[str, Any]):
-        for name, spec in specs.items():
-            # The default return type is 'ERROR'
-            if "RETURN" not in spec:
-                spec["RETURN"] = "ERROR"
-
-            if "FLAGS" in spec:
-                flags = spec["FLAGS"]
-                if isinstance(flags, str):
-                    spec["FLAGS"] = [flag.strip() for flag in flags.split(",")]
-            else:
-                spec["FLAGS"] = []
+    def get_function_descriptor(self, name: str) -> FunctionDescriptor:
+        return self._function_descriptors[name]
 
     def _parse_parameter_specification(self, name: str) -> Dict[str, ParamSpec]:
-        param_spec_str = self._get_function_spec(name).get("PARAMS")
+        param_spec_str = self.get_function_descriptor(name).get("PARAMS")
         params = param_spec_str.split(",") if param_spec_str else []
         params = [item.strip().split(" ", 1) for item in params]
 
@@ -304,7 +345,7 @@ class CodeGeneratorBase(CodeGenerator):
         }
 
     def _parse_dependency_specification(self, name: str) -> Dict[str, Tuple[str, ...]]:
-        dep_spec_str = self._get_function_spec(name).get("DEPS")
+        dep_spec_str = self.get_function_descriptor(name).get("DEPS")
         deps = dep_spec_str.split(",") if dep_spec_str else []
 
         deps = [item.strip().split("ON", 1) for item in deps]
@@ -324,6 +365,5 @@ class CodeGeneratorBase(CodeGenerator):
         Returns:
             whether the function should be ignored by this code generator
         """
-        spec = self._get_function_spec(name)
-        tokens = spec.get("IGNORE", "").split(",")
-        return any(token.strip() == self.name for token in tokens)
+        desc = self.get_function_descriptor(name)
+        return self.name in desc.ignored_by

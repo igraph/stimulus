@@ -7,7 +7,7 @@ from typing import Any, Dict, IO, Sequence
 
 from .base import CodeGeneratorBase, ParamMode, ParamSpec
 
-__all__ = ("ShellCodeGenerator", "ShellLnCodeGenerator")
+__all__ = ("ShellCodeGenerator",)
 
 ################################################################################
 # Shell interface, igraph functions directly from the command line
@@ -20,9 +20,65 @@ __all__ = ("ShellCodeGenerator", "ShellLnCodeGenerator")
 ################################################################################
 
 
-class ShellLnCodeGenerator(CodeGeneratorBase):
-    def generate_function(self, name: str, out: IO[str]) -> None:
-        out.write(f"{name}\n")
+FUNCTION_TEMPLATE = """\
+/*-------------------------------------------/
+/ %(func)-42s /
+/-------------------------------------------*/
+void shell_%(func)s_usage(char **argv) {
+%(usage)s
+  exit(1);
+}
+
+int shell_%(func)s(int argc, char **argv) {
+
+%(decl)s
+
+  int shell_seen[%(nargs)s];
+  int shell_index=-1;
+  struct option shell_options[]= { %(args)s
+                                   { "help", no_argument, 0, %(nargs)s },
+                                   { 0, 0, 0, 0 }
+                                 };
+
+  /* 0 - not seen, 1 - seen as argument, 2 - seen as default */
+  memset(shell_seen, 0, %(nargs)s*sizeof(int));
+%(default)s
+
+  /* Parse arguments and read input */
+  while (getopt_long(argc, argv, "", shell_options, &shell_index) != -1) {
+
+    if (shell_index==-1) {
+      exit(1);
+    }
+
+    if (shell_seen[shell_index]==1) {
+      fprintf(stderr, "Error, `--%%s' argument given twice.\\n",
+              shell_options[shell_index].name);
+      exit(1);
+    }
+    shell_seen[shell_index]=1;
+%(inconv)s
+    shell_index=-1;
+  }
+
+  /* Check that we have all arguments */
+  for (shell_index=0; shell_index<%(nargs)s; shell_index++) {
+    if (!shell_seen[shell_index]) {
+      fprintf(stderr, "Error, argument missing: `--%%s'.\\n",
+              shell_options[shell_index].name);
+      exit(1);
+    }
+  }
+
+  /* Do the operation */
+%(call)s
+
+  /* Write the result */
+%(outconv)s
+
+  return 0;
+}
+"""
 
 
 class ShellCodeGenerator(CodeGeneratorBase):
@@ -100,68 +156,7 @@ class ShellCodeGenerator(CodeGeneratorBase):
         res["outconv"] = self.chunk_outconv(name, params)
         res["default"] = self.chunk_default(name, params, args)
         res["usage"] = self.chunk_usage(name, args)
-        text = (
-            """\
-/*-------------------------------------------/
-/ %(func)-42s /
-/-------------------------------------------*/
-void shell_%(func)s_usage(char **argv) {
-%(usage)s
-  exit(1);
-}
-
-int shell_%(func)s(int argc, char **argv) {
-
-%(decl)s
-
-  int shell_seen[%(nargs)s];
-  int shell_index=-1;
-  struct option shell_options[]= { %(args)s
-                                   { "help", no_argument, 0, %(nargs)s },
-                                   { 0, 0, 0, 0 }
-                                 };
-
-  /* 0 - not seen, 1 - seen as argument, 2 - seen as default */
-  memset(shell_seen, 0, %(nargs)s*sizeof(int));
-%(default)s
-
-  /* Parse arguments and read input */
-  while (getopt_long(argc, argv, "", shell_options, &shell_index) != -1) {
-
-    if (shell_index==-1) {
-      exit(1);
-    }
-
-    if (shell_seen[shell_index]==1) {
-      fprintf(stderr, "Error, `--%%s' argument given twice.\\n",
-              shell_options[shell_index].name);
-      exit(1);
-    }
-    shell_seen[shell_index]=1;
-%(inconv)s
-    shell_index=-1;
-  }
-
-  /* Check that we have all arguments */
-  for (shell_index=0; shell_index<%(nargs)s; shell_index++) {
-    if (!shell_seen[shell_index]) {
-      fprintf(stderr, "Error, argument missing: `--%%s'.\\n",
-              shell_options[shell_index].name);
-      exit(1);
-    }
-  }
-
-  /* Do the operation */
-%(call)s
-
-  /* Write the result */
-%(outconv)s
-
-  return 0;
-}\n"""
-            % res
-        )
-        out.write(text)
+        out.write(FUNCTION_TEMPLATE % res)
 
     def chunk_args(self, func_name: str, params: Dict[str, Dict[str, str]]) -> str:
         res = [
@@ -196,8 +191,8 @@ int shell_%(func)s(int argc, char **argv) {
         inout = [
             "  char* shell_arg_" + n + "=0;" for n, p in params.items() if p.is_output
         ]
-        spec = self._get_function_spec(name)
-        rt = self.types[spec["RETURN"]]
+        spec = self.get_function_descriptor(name)
+        rt = self.types[spec.return_type]
         if "DECL" in rt:
             retdecl = "  " + rt["DECL"]
         elif "CTYPE" in rt:
@@ -205,7 +200,7 @@ int shell_%(func)s(int argc, char **argv) {
         else:
             retdecl = ""
 
-        if spec["RETURN"] != "ERROR":
+        if spec.return_type != "ERROR":
             retchar = '  char *shell_arg_shell_result="-";'
         else:
             retchar = ""
@@ -277,7 +272,7 @@ int shell_%(func)s(int argc, char **argv) {
         return f"  shell_result = {func_name}({call});"
 
     def chunk_outconv(self, name: str, params: Dict[str, ParamSpec]) -> str:
-        spec = self._get_function_spec(name)
+        spec = self.get_function_descriptor(name)
 
         def do_par(pname):
             t = self.types[params[pname].type]
@@ -291,7 +286,7 @@ int shell_%(func)s(int argc, char **argv) {
             return outconv.replace("%C%", pname)
 
         outconv = [do_par(n) for n in params]
-        rt = self.types[spec["RETURN"]]
+        rt = self.types[spec.return_type]
         if "OUTCONV" in rt and "OUT" in rt["OUTCONV"]:
             rtout = "  " + rt["OUTCONV"]["OUT"]
         else:

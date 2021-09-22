@@ -8,15 +8,8 @@ from typing import Callable
 from .generators.base import CodeGenerator
 from .generators.java import JavaCCodeGenerator, JavaJavaCodeGenerator  # noqa
 from .generators.r import RCCodeGenerator, RRCodeGenerator  # noqa
-from .generators.shell import ShellCodeGenerator, ShellLnCodeGenerator  # noqa
+from .generators.shell import ShellCodeGenerator  # noqa
 from .version import __version__
-
-
-def usage():
-    print(f"Stimulus {__version__}")
-    print(sys.argv[0], "-f <function-file> -t <type-file> -l language ")
-    print(" " * len(sys.argv[0]), "-i <input-file> -o <output-file>")
-    print(" " * len(sys.argv[0]), "-h --help -v")
 
 
 def get_code_generator_class_for_language(
@@ -41,6 +34,10 @@ def has_code_generator_class_for_language(lang: str) -> bool:
 
 def create_argument_parser() -> ArgumentParser:
     parser = ArgumentParser()
+
+    parser.add_argument(
+        "--version", action="version", version=f"%(prog)s {__version__}"
+    )
 
     parser.add_argument(
         "-t",
@@ -119,7 +116,7 @@ def main():
 
     for path in inputs:
         if not os.access(path, os.R_OK):
-            parser.error("Error: cannot open input file: {path}")
+            parser.error(f"Error: cannot open input file: {path}")
 
     # Construct a log that the generators can write their messages to
     log = logging.getLogger()
@@ -131,15 +128,15 @@ def main():
         generator = factory()
         generator.use_logger(log)
         for path in function_files:
-            generator.load_function_rules_from_file(path)
+            generator.load_function_descriptors_from_file(path)
         for path in type_files:
-            generator.load_type_rules_from_file(path)
+            generator.load_type_descriptors_from_file(path)
 
         if output == "-":
             generator.generate(inputs, sys.stdout)
         else:
-            with open(output, "w"):
-                generator.generate(inputs, output)
+            with open(output, "w") as fp:
+                generator.generate(inputs, fp)
 
 
 if __name__ == "__main__":

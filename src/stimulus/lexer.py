@@ -110,7 +110,7 @@ def tokenize(stream: IO[str]) -> Iterator[Token]:
         # Ok, we're done with the whitespace, now let's see
         # whether this line is continued in the next one
         while line.endswith("\\"):
-            line = line[:-1] + stream.readline().strip()
+            line = line[:-1] + "\n  " + stream.readline().strip()
             lineno = lineno + 1
 
         # We have the line now, check whether there is a ':' in it
