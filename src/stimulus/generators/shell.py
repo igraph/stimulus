@@ -3,9 +3,9 @@ from the command line.
 """
 
 from collections import OrderedDict
-from typing import Any, Dict, IO, Sequence
+from typing import Any, Dict, IO
 
-from .base import CodeGeneratorBase, ParamMode, ParamSpec
+from .base import ParamMode, ParamSpec, SingleBlockCodeGenerator
 
 __all__ = ("ShellCodeGenerator",)
 
@@ -81,10 +81,8 @@ int shell_%(func)s(int argc, char **argv) {
 """
 
 
-class ShellCodeGenerator(CodeGeneratorBase):
-    def generate(self, inputs: Sequence[str], out: IO[str]):
-        self.append_inputs(inputs, out)
-
+class ShellCodeGenerator(SingleBlockCodeGenerator):
+    def generate_functions_block(self, out: IO[str]) -> None:
         out.write("\n/* Function prototypes first */\n\n")
 
         for name in self.iter_functions():

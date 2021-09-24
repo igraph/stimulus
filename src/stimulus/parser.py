@@ -19,6 +19,10 @@ class StackFrame:
 
 
 class Parser:
+    """Simple parser class for parsing the `.def` files that Stimulus uses for
+    function and type descriptors.
+    """
+
     def parse(self, stream: IO[str]) -> Dict[str, Any]:
         value: OrderedDict[str, Any] = OrderedDict()
         stack: List[StackFrame] = [StackFrame(value=value), StackFrame()]

@@ -1,9 +1,13 @@
+import re
+
 from abc import abstractmethod, ABCMeta
 from collections import OrderedDict
 from dataclasses import dataclass, field
 from enum import Enum
+from io import StringIO
 from logging import Logger
 from pathlib import Path
+from shutil import copyfileobj
 from typing import (
     Any,
     Dict,
@@ -17,14 +21,18 @@ from typing import (
     Tuple,
 )
 
+from stimulus.errors import StimulusError
 from stimulus.parser import Parser
 
 __all__ = (
+    "BlockBasedCodeGenerator",
     "CodeGenerator",
     "CodeGeneratorBase",
     "FunctionDescriptor",
+    "InputPlacement",
     "ParamMode",
     "ParamSpec",
+    "SingleBlockCodeGenerator",
 )
 
 
@@ -226,28 +234,11 @@ class CodeGeneratorBase(CodeGenerator):
     def load_type_descriptors_from_object(self, obj: Dict[str, Any]) -> None:
         self.types.update(obj)
 
-    def generate(self, inputs: Sequence[str], output: IO[str]) -> None:
-        self.append_inputs(inputs, output)
-        for name in self.iter_functions():
-            self.generate_function(name, output)
-
     def use_logger(self, log: Logger) -> None:
         self.log = log
 
-    def append_inputs(self, inputs: Sequence[str], output: IO[str]) -> None:
-        """Appends the contents of the given input files to the given output
-        stream.
-
-        Parameters:
-            inputs: the input files to append
-            output: the output stream to append the files to
-        """
-        for input in inputs:
-            contents = Path(input).read_text()
-            output.write(contents)
-
     @abstractmethod
-    def generate_function(self, name: str, out: IO[str]) -> None:
+    def generate_function(self, name: str, output: IO[str]) -> None:
         """Processes the function with the given name and generates the
         corresponding output on the output stream.
 
@@ -255,6 +246,13 @@ class CodeGeneratorBase(CodeGenerator):
         ignored by `should_ignore_function()`.
         """
         raise NotImplementedError
+
+    def generate_functions_block(self, output: IO[str]) -> None:
+        """Generates the part of the output file that contains the generated code
+        for functions.
+        """
+        for name in self.iter_functions():
+            self.generate_function(name, output)
 
     def get_dependencies_for_function(self, name: str) -> Dict[str, Tuple[str, ...]]:
         """Returns a dictionary mapping the names of the parameters of the given
@@ -320,6 +318,11 @@ class CodeGeneratorBase(CodeGenerator):
     def get_function_descriptor(self, name: str) -> FunctionDescriptor:
         return self._function_descriptors[name]
 
+    def _append_inputs(self, inputs: Sequence[str], output: IO[str]) -> None:
+        for input in inputs:
+            with Path(input).open() as fp:
+                copyfileobj(fp, output)
+
     def _parse_parameter_specification(self, name: str) -> Dict[str, ParamSpec]:
         param_spec_str = self.get_function_descriptor(name).get("PARAMS")
         params = param_spec_str.split(",") if param_spec_str else []
@@ -367,3 +370,106 @@ class CodeGeneratorBase(CodeGenerator):
         """
         desc = self.get_function_descriptor(name)
         return self.name in desc.ignored_by
+
+
+class BlockBasedCodeGenerator(CodeGeneratorBase):
+    """Code generator that looks for block markers in input files and replaces
+    each block with the corresponding content.
+
+    Block markers are lines that look like this:
+
+        % STIMULUS: block_name %
+
+    where the colon and the whitespace after and before the percent signs are
+    optional. Block names may contain alphanumeric characters, underscore and
+    dash only.
+    """
+
+    _BLOCK_REGEXP = re.compile(r"^\s*%\s*STIMULUS:?\s*(?P<name>[-A-Za-z0-9_]*)\s*%")
+
+    _block_cache: Dict[str, str]
+
+    def __init__(self):
+        super().__init__()
+        self._block_cache = {}
+
+    def generate(self, inputs: Sequence[str], out: IO[str]) -> None:
+        for input in inputs:
+            with open(input) as fp:
+                for line in fp:
+                    if not self._process_marker_line(line, out):
+                        out.write(line)
+
+    def _generate_block(self, name: str) -> str:
+        """Generates the contents of the block with the given name.
+
+        This function is called once per block; further occurrences of the same
+        block are retrieved from the cache.
+        """
+        handler = getattr(self, f"generate_{name}_block", None)
+        if handler is None:
+            raise StimulusError(f"Unhandled block in input file: {name}")
+
+        buf = StringIO()
+        handler(buf)
+        return buf.getvalue()
+
+    def _process_marker_line(self, line: str, out: IO[str]) -> bool:
+        """Attempts to process a potential marker line in one of the input files.
+
+        Marker lines are the ones that start with ``% STIMULUS``.
+
+        Returns:
+            whether the line was handled. Unhandled files should be forwarded to
+            the output as is by the caller.
+        """
+        match = self._BLOCK_REGEXP.match(line)
+        if match:
+            block_name = match.group("name") or "functions"
+            block = self._block_cache.get(block_name)
+            if block is None:
+                self._block_cache[block_name] = block = self._generate_block(block_name)
+            out.write(block)
+            return True
+        else:
+            return False
+
+
+class InputPlacement(Enum):
+    """Enum describing the possible placements of input files in a
+    single-block code generator.
+    """
+
+    PREAMBLE = "preamble"
+    EPILOGUE = "epilogue"
+
+
+class SingleBlockCodeGenerator(CodeGeneratorBase):
+    """Code generator that generates all functions in a single block and then
+    puts the content of all input files before or after them.
+    """
+
+    def __init__(self, input_placement: InputPlacement = InputPlacement.PREAMBLE):
+        super().__init__()
+        self._input_placement = input_placement
+
+    def generate(self, inputs: Sequence[str], output: IO[str]) -> None:
+        self.generate_preamble(inputs, output)
+        self.generate_functions_block(output)
+        self.generate_epilogue(inputs, output)
+
+    def generate_epilogue(self, inputs: Sequence[str], output: IO[str]) -> None:
+        """Processes the input files with the given names and generates the
+        epilogue of the output, i.e. the part that gets printed _after_ the
+        processed functions.
+        """
+        if self._input_placement is InputPlacement.EPILOGUE:
+            self._append_inputs(inputs, output)
+
+    def generate_preamble(self, inputs: Sequence[str], output: IO[str]) -> None:
+        """Processes the input files with the given names and generates the
+        preamble of the output, i.e. the part that gets printed _before_ the
+        processed functions.
+        """
+        if self._input_placement is InputPlacement.PREAMBLE:
+            self._append_inputs(inputs, output)

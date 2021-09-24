@@ -3,11 +3,15 @@
 TODO: - everything :) This is just a PoC implementation.
 """
 
-from typing import Any, Dict, IO, Sequence
+from typing import Any, Dict, IO
 
 from stimulus.errors import StimulusError
 
-from .base import CodeGeneratorBase, ParamMode, ParamSpec
+from .base import (
+    BlockBasedCodeGenerator,
+    ParamMode,
+    ParamSpec,
+)
 
 
 def camelcase(s: str) -> str:
@@ -21,7 +25,7 @@ def camelcase(s: str) -> str:
     return "".join(result)
 
 
-class JavaCodeGenerator(CodeGeneratorBase):
+class JavaCodeGenerator(BlockBasedCodeGenerator):
     """Class containing the common parts of JavaJavaCodeGenerator and
     JavaCCodeGenerator"""
 
@@ -124,19 +128,6 @@ class JavaCodeGenerator(CodeGeneratorBase):
 
 
 class JavaJavaCodeGenerator(JavaCodeGenerator):
-    def generate(self, inputs: Sequence[str], out: IO[str]) -> None:
-        if len(inputs) > 1:
-            raise StimulusError("Java code generator supports only a single input")
-
-        with open(inputs[0]) as input:
-            for line in input:
-                if "%STIMULUS%" not in line:
-                    out.write(line)
-                    continue
-
-                for name in self.iter_functions():
-                    self.generate_function(name, out)
-
     def generate_function(self, name: str, out: IO[str]) -> None:
         try:
             func_metadata = self.get_function_metadata(name)
@@ -154,7 +145,7 @@ class JavaCCodeGenerator(JavaCodeGenerator):
         try:
             self.metadata = self.get_function_metadata(function, "CTYPE")
         except StimulusError as e:
-            out.write("/* %s */\n" % str(e))
+            out.write("\n/* %s */\n" % str(e))
             return
 
         params = self.get_parameters_for_function(function)

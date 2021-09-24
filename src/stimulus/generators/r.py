@@ -9,10 +9,10 @@ import re
 
 from stimulus.errors import StimulusError
 
-from .base import CodeGeneratorBase, ParamMode, ParamSpec
+from .base import ParamMode, ParamSpec, SingleBlockCodeGenerator
 
 
-class RRCodeGenerator(CodeGeneratorBase):
+class RRCodeGenerator(SingleBlockCodeGenerator):
     def generate_function(self, function: str, out: IO[str]) -> None:
         spec = self.get_function_descriptor(function)
 
@@ -231,7 +231,7 @@ class RRCodeGenerator(CodeGeneratorBase):
         out.write("  res\n}\n\n")
 
 
-class RCCodeGenerator(CodeGeneratorBase):
+class RCCodeGenerator(SingleBlockCodeGenerator):
     def generate_function(self, function: str, out: IO[str]) -> None:
         params = self.get_parameters_for_function(function)
         self.deps = self.get_dependencies_for_function(function)
@@ -341,8 +341,7 @@ class RCCodeGenerator(CodeGeneratorBase):
         elif "CTYPE" in rt and len(retpars) == 0:
             ctype = rt["CTYPE"]
             if type(ctype) == dict:
-                mode = params[pname].mode_str  # noqa
-                retdecl = "  " + ctype[mode] + " " + "c_result;"
+                retdecl = "  " + ctype["OUT"] + " " + "c_result;"
             else:
                 retdecl = "  " + rt["CTYPE"] + " c_result;"
         else:
