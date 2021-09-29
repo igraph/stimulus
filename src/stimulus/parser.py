@@ -24,7 +24,7 @@ class Parser:
     """
 
     def parse(self, stream: IO[str]) -> Dict[str, Any]:
-        value: OrderedDict[str, Any] = OrderedDict()
+        value: Dict[str, Any] = OrderedDict()
         stack: List[StackFrame] = [StackFrame(value=value), StackFrame()]
 
         for token in tokenize(stream):

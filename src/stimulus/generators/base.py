@@ -189,9 +189,9 @@ class CodeGeneratorBase(CodeGenerator):
 
     log: Logger
     name: str
-    types: OrderedDict[str, Any]
+    types: Dict[str, Any]
 
-    _function_descriptors: OrderedDict[str, FunctionDescriptor]
+    _function_descriptors: Dict[str, FunctionDescriptor]
 
     _deps_cache: Dict[str, Dict[str, Tuple[str, ...]]]
     _ignore_cache: Dict[str, bool]
