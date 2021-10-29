@@ -1,3 +1,7 @@
+"""Lexer for the legacy `.def` file format that we used before migrating to
+YAML.
+"""
+
 from __future__ import annotations
 
 import re
@@ -6,7 +10,7 @@ from dataclasses import dataclass
 from enum import Enum
 from typing import ClassVar, IO, Iterator, List
 
-from .errors import ParseError
+from ..errors import ParseError
 
 __all__ = ("Token", "TokenType", "tokenize")
 
@@ -140,7 +144,7 @@ def test():
     from pprint import pprint
 
     parser = ArgumentParser()
-    parser.add_argument("file", help="name of the input file to parse")
+    parser.add_argument("file", help="name of the input file to tokenize")
     options = parser.parse_args()
 
     with open(options.file) as fp:

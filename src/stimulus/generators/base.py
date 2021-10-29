@@ -22,7 +22,7 @@ from typing import (
 )
 
 from stimulus.errors import StimulusError
-from stimulus.parser import Parser
+from stimulus.legacy.parser import Parser as LegacyParser
 
 __all__ = (
     "BlockBasedCodeGenerator",
@@ -215,8 +215,7 @@ class CodeGeneratorBase(CodeGenerator):
         self._param_cache = {}
 
     def load_function_descriptors_from_file(self, filename: str) -> None:
-        with open(filename) as fp:
-            specs = Parser().parse(fp)
+        specs = self._parse_file(filename)
         self.load_function_descriptors_from_object(specs)
 
     def load_function_descriptors_from_object(self, obj: Dict[str, Any]) -> None:
@@ -227,8 +226,7 @@ class CodeGeneratorBase(CodeGenerator):
             descriptor.update_from(spec)
 
     def load_type_descriptors_from_file(self, filename: str) -> None:
-        with open(filename) as fp:
-            specs = Parser().parse(fp)
+        specs = self._parse_file(filename)
         self.load_type_descriptors_from_object(specs)
 
     def load_type_descriptors_from_object(self, obj: Dict[str, Any]) -> None:
@@ -357,6 +355,19 @@ class CodeGeneratorBase(CodeGenerator):
         deps = [[dd.strip() for dd in item] for item in deps]
 
         return {str(name): tuple(values) for name, *values in deps}
+
+    def _parse_file(self, name: str) -> Dict[str, Any]:
+        """Parses a generic input file. The extension of the input file decides
+        whether to use the legacy ``.def`` parser or a standard YAML parser.
+        """
+        if name.lower().endswith(".def"):
+            with open(name) as fp:
+                return LegacyParser().parse(fp)
+        else:
+            from yaml import safe_load
+
+            with open(name) as fp:
+                return safe_load(fp)
 
     def _should_ignore_function(self, name: str) -> bool:
         """Returns whether the function with the given name should be ignored

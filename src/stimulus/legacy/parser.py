@@ -1,10 +1,14 @@
+"""Parser for the legacy `.def` file format that we used before migrating to
+YAML.
+"""
+
 from __future__ import annotations
 
 from collections import OrderedDict
 from dataclasses import dataclass
 from typing import Any, Dict, IO, List, Optional, Union
 
-from .errors import ParseError
+from ..errors import ParseError
 from .lexer import tokenize, TokenType
 
 __all__ = ("Parser",)
@@ -60,15 +64,56 @@ class Parser:
 
 def test():
     from argparse import ArgumentParser
-    from pprint import pprint
+    from re import MULTILINE, sub
+    from yaml import safe_dump
+    from yaml.representer import SafeRepresenter
 
     arg_parser = ArgumentParser()
     arg_parser.add_argument("file", help="name of the input file to parse")
+    arg_parser.add_argument(
+        "-o",
+        "--output",
+        help=(
+            "optional output file to save the YAML representation of the "
+            "parsed input to"
+        ),
+        type=str,
+        default=None,
+    )
     options = arg_parser.parse_args()
 
     parser = Parser()
     with open(options.file) as fp:
-        pprint(parser.parse(fp))
+        parsed = parser.parse(fp)
+
+    dump_kwds = {"default_flow_style": False, "indent": 4}
+
+    def ordered_dict_representer(dumper, data):
+        """YAML representer that presents ordered dicts as ordinary Python
+        dicts.
+        """
+        return dumper.represent_dict(data.items())
+
+    def str_representer(dumper, data):
+        """YAML representer that encodes multi-line strings in block format."""
+        if "\n" in data:
+            data = sub(r" *\n *", "\n", data, flags=MULTILINE)
+            return dumper.represent_scalar("tag:yaml.org,2002:str", data, style="|")
+        else:
+            return dumper.represent_scalar("tag:yaml.org,2002:str", data)
+
+    SafeRepresenter.add_representer(str, str_representer)
+    SafeRepresenter.add_representer(OrderedDict, ordered_dict_representer)
+
+    result = safe_dump(parsed, None, **dump_kwds)
+    result = sub(r"^igraph_", "\nigraph_", result, flags=MULTILINE)
+
+    if options.output:
+        with open(options.output, "w") as fp:
+            fp.write(result)
+
+    else:
+        print(result)
 
 
 if __name__ == "__main__":
