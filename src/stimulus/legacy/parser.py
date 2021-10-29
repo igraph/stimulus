@@ -97,7 +97,7 @@ def test():
     def str_representer(dumper, data):
         """YAML representer that encodes multi-line strings in block format."""
         if "\n" in data:
-            data = sub(r" *\n *", "\n", data, flags=MULTILINE)
+            data = sub(r" *\n", "\n", data, flags=MULTILINE)
             return dumper.represent_scalar("tag:yaml.org,2002:str", data, style="|")
         else:
             return dumper.represent_scalar("tag:yaml.org,2002:str", data)
@@ -106,7 +106,7 @@ def test():
     SafeRepresenter.add_representer(OrderedDict, ordered_dict_representer)
 
     result = safe_dump(parsed, None, **dump_kwds)
-    result = sub(r"^igraph_", "\nigraph_", result, flags=MULTILINE)
+    result = sub(r"^([A-Za-z])", "\n\\1", result, flags=MULTILINE)
 
     if options.output:
         with open(options.output, "w") as fp:
