@@ -5,7 +5,9 @@ from the command line.
 from collections import OrderedDict
 from typing import Any, Dict, IO
 
-from .base import ParamMode, ParamSpec, SingleBlockCodeGenerator
+from stimulus.model import ParamMode, ParamSpec
+
+from .base import SingleBlockCodeGenerator
 
 __all__ = ("ShellCodeGenerator",)
 
@@ -114,24 +116,23 @@ class ShellCodeGenerator(SingleBlockCodeGenerator):
         out.write(f"int shell_{name}(int argc, char **argv);\n")
 
     def generate_function(self, name: str, out: IO[str]) -> None:
-        params = self.get_parameters_for_function(name)
+        # Check types
+        self.check_types_of_function(name, errors="warn")
 
-        # Check types, also enumerate them
+        # Enumerate parameters
+        desc = self.get_function_descriptor(name)
         args = OrderedDict()
-        for p in params:
-            tname = params[p].type
-            if tname not in self.types:
-                self.log.warning(f"Unknown type encountered: {tname!r}")
-                return
-
+        for param in desc.iter_parameters():
+            tname = param.type
             t = self.types[tname]
-            mode = params[p].mode
+            mode = param.mode
             if "INCONV" in t or "OUTCONV" in t:
-                args[p] = params[p].as_dict()
+                p = param.name
+                args[p] = param.as_dict()
                 args[p]["shell_no"] = len(args) - 1
                 if mode is ParamMode.INOUT:
                     args[p]["mode"] = "IN"
-                    args[p + "-out"] = params[p].as_dict()
+                    args[p + "-out"] = param.as_dict()
                     args[p + "-out"]["mode"] = "OUT"
                     args[p + "-out"]["shell_no"] = len(args) - 1
                     if "INCONV" not in t or "IN" not in t["INCONV"]:
@@ -146,6 +147,7 @@ class ShellCodeGenerator(SingleBlockCodeGenerator):
                 self.log.warning(f"No OUTCONV for type {tname!r}, mode {mode}")
 
         res: Dict[str, Any] = {"nargs": len(args)}
+        params = desc.parameters
         res["func"] = name
         res["args"] = self.chunk_args(name, args)
         res["decl"] = self.chunk_decl(name, params)

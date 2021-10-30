@@ -2,7 +2,6 @@ import re
 
 from abc import abstractmethod, ABCMeta
 from collections import OrderedDict
-from dataclasses import dataclass, field
 from enum import Enum
 from io import StringIO
 from logging import Logger
@@ -14,100 +13,21 @@ from typing import (
     IO,
     Iterable,
     List,
-    Mapping,
-    Optional,
     Sequence,
-    Set,
     Tuple,
 )
 
 from stimulus.errors import StimulusError
 from stimulus.legacy.parser import Parser as LegacyParser
+from stimulus.model import FunctionDescriptor
 
 __all__ = (
     "BlockBasedCodeGenerator",
     "CodeGenerator",
     "CodeGeneratorBase",
-    "FunctionDescriptor",
     "InputPlacement",
-    "ParamMode",
-    "ParamSpec",
     "SingleBlockCodeGenerator",
 )
-
-
-class ParamMode(Enum):
-    """Enum representing the modes of function parameters."""
-
-    IN = "in"
-    OUT = "out"
-    INOUT = "inout"
-
-
-@dataclass
-class ParamSpec:
-    """Specification of a single function parameter."""
-
-    name: str
-    type: str
-    mode: ParamMode = ParamMode.IN
-    default: Optional[str] = None
-
-    def as_dict(self) -> Dict[str, str]:
-        """Returns a dict representation of the parameter specification."""
-        result = {"name": self.name, "mode": self.mode_str, "type": self.type}
-        if self.default is not None:
-            result["default"] = self.default
-        return result
-
-    @property
-    def is_input(self) -> bool:
-        """Returns whether the function parameter is an input argument."""
-        return self.mode in (ParamMode.IN, ParamMode.INOUT)
-
-    @property
-    def is_output(self) -> bool:
-        """Returns whether the function parameter is an output argument."""
-        return self.mode in (ParamMode.OUT, ParamMode.INOUT)
-
-    @property
-    def mode_str(self) -> str:
-        return str(self.mode.value).upper()
-
-
-@dataclass
-class FunctionDescriptor(Mapping[str, Any]):
-    """Dataclass that describes a single function for which we can generate
-    related code in a code generator.
-    """
-
-    _obj: Dict[str, str] = field(default_factory=dict)
-
-    ignored_by: Set[str] = field(default_factory=set)
-    return_type: str = "ERROR"
-
-    def __getitem__(self, key: str) -> Any:
-        return self._obj[key]
-
-    def __iter__(self):
-        return iter(self._obj)
-
-    def __len__(self):
-        return len(self._obj)
-
-    def update_from(self, obj: Dict[str, str]) -> None:
-        """Updates the function descriptor from an object typically parsed from
-        a specification file.
-        """
-        self._obj.update(obj)
-
-        ignore: str = obj.get("IGNORE", "")
-        if ignore:
-            self.ignored_by = set(part.strip() for part in ignore.split(","))
-
-        return_type: str = obj.get("RETURN", "")
-        if return_type:
-            self.return_type = str(return_type)
 
 
 class CodeGenerator(metaclass=ABCMeta):
@@ -195,7 +115,6 @@ class CodeGeneratorBase(CodeGenerator):
 
     _deps_cache: Dict[str, Dict[str, Tuple[str, ...]]]
     _ignore_cache: Dict[str, bool]
-    _param_cache: Dict[str, Dict[str, ParamSpec]]
 
     def __init__(self):
         """Constructor."""
@@ -212,7 +131,43 @@ class CodeGeneratorBase(CodeGenerator):
 
         self._deps_cache = {}
         self._ignore_cache = {}
-        self._param_cache = {}
+
+    def check_types_of_function(self, function: str, errors: str = "raise") -> bool:
+        """Checks whether the types of all the input arguments of the given
+        function are known to the code generator.
+
+        Parameters:
+            function: the name of the function to check
+            errors: specifies what to do when an unknown type is found;
+                ``"ignore"`` does nothing; ``"warn"`` prints a warning;
+                ``"error"`` logs an error message; any other value raises an
+                exception
+
+        Returns:
+            whether the types of all the input arguments of the given function
+            are known to the code generator
+        """
+        spec = self.get_function_descriptor(function)
+        ok = True
+
+        for param in spec.iter_parameters():
+            type_name = param.type
+            if type_name not in self.types:
+                message = (
+                    f"Parameter {param.name!r} of {function}() is of type "
+                    f"{type_name!r}, but it is not known to the type system"
+                )
+                ok = False
+                if errors == "ignore":
+                    pass
+                elif errors == "warn":
+                    self.log.warning(message)
+                elif errors == "error":
+                    self.log.error(message)
+                else:
+                    raise StimulusError(message)
+
+        return ok
 
     def load_function_descriptors_from_file(self, filename: str) -> None:
         specs = self._parse_file(filename)
@@ -222,7 +177,9 @@ class CodeGeneratorBase(CodeGenerator):
         for name, spec in obj.items():
             descriptor = self._function_descriptors.get(name)
             if not descriptor:
-                self._function_descriptors[name] = descriptor = FunctionDescriptor()
+                self._function_descriptors[name] = descriptor = FunctionDescriptor(
+                    name=name
+                )
             descriptor.update_from(spec)
 
     def load_type_descriptors_from_file(self, filename: str) -> None:
@@ -234,6 +191,9 @@ class CodeGeneratorBase(CodeGenerator):
 
     def use_logger(self, log: Logger) -> None:
         self.log = log
+
+    def get_function_descriptor(self, name: str) -> FunctionDescriptor:
+        return self._function_descriptors[name]
 
     @abstractmethod
     def generate_function(self, name: str, output: IO[str]) -> None:
@@ -251,38 +211,6 @@ class CodeGeneratorBase(CodeGenerator):
         """
         for name in self.iter_functions():
             self.generate_function(name, output)
-
-    def get_dependencies_for_function(self, name: str) -> Dict[str, Tuple[str, ...]]:
-        """Returns a dictionary mapping the names of the parameters of the given
-        function to the names of additional parameters they depend on.
-
-        Parameters:
-            name: the name of the function
-
-        Returns:
-            a dictionary mapping the names of the parameters to their
-            dependencies
-        """
-        result = self._deps_cache.get(name)
-        if result is None:
-            self._deps_cache[name] = result = self._parse_dependency_specification(name)
-        return result
-
-    def get_parameters_for_function(self, name: str) -> Dict[str, ParamSpec]:
-        """Returns a dictionary mapping the names of the parameters of the given
-        function to their parameter specifications.
-
-        Parameters:
-            name: the name of the function
-
-        Returns:
-            a dictionary mapping the names of the parameters to their parameter
-            specifications
-        """
-        result = self._param_cache.get(name)
-        if result is None:
-            self._param_cache[name] = result = self._parse_parameter_specification(name)
-        return result
 
     def iter_functions(self, include_ignored: bool = False) -> Iterable[str]:
         """Iterator that yields the names of the functions in the function
@@ -313,48 +241,10 @@ class CodeGeneratorBase(CodeGenerator):
             self._ignore_cache[name] = result = self._should_ignore_function(name)
         return result
 
-    def get_function_descriptor(self, name: str) -> FunctionDescriptor:
-        return self._function_descriptors[name]
-
     def _append_inputs(self, inputs: Sequence[str], output: IO[str]) -> None:
         for input in inputs:
             with Path(input).open() as fp:
                 copyfileobj(fp, output)
-
-    def _parse_parameter_specification(self, name: str) -> Dict[str, ParamSpec]:
-        param_spec_str = self.get_function_descriptor(name).get("PARAMS")
-        params = param_spec_str.split(",") if param_spec_str else []
-        params = [item.strip().split(" ", 1) for item in params]
-
-        for p in range(len(params)):
-            if params[p][0] in ["OUT", "IN", "INOUT"]:
-                params[p] = [params[p][0]] + params[p][1].split(" ", 1)
-            else:
-                params[p] = ["IN", params[p][0]] + params[p][1].split(" ", 1)
-            if "=" in params[p][2]:
-                params[p] = params[p][:2] + params[p][2].split("=", 1)
-        params = [[p.strip() for p in pp] for pp in params]
-
-        return {
-            str(name): ParamSpec(
-                name=str(name),
-                mode=ParamMode(mode.lower()),
-                type=str(type),
-                default=rest[0] if rest else None,
-            )
-            for mode, type, name, *rest in params
-        }
-
-    def _parse_dependency_specification(self, name: str) -> Dict[str, Tuple[str, ...]]:
-        dep_spec_str = self.get_function_descriptor(name).get("DEPS")
-        deps = dep_spec_str.split(",") if dep_spec_str else []
-
-        deps = [item.strip().split("ON", 1) for item in deps]
-        deps = [[dd.strip() for dd in item] for item in deps]
-        deps = [[item[0]] + item[1].split(" ", 1) for item in deps]
-        deps = [[dd.strip() for dd in item] for item in deps]
-
-        return {str(name): tuple(values) for name, *values in deps}
 
     def _parse_file(self, name: str) -> Dict[str, Any]:
         """Parses a generic input file. The extension of the input file decides

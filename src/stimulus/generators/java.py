@@ -6,12 +6,9 @@ TODO: - everything :) This is just a PoC implementation.
 from typing import Any, Dict, IO
 
 from stimulus.errors import StimulusError
+from stimulus.model import ParamMode, ParamSpec
 
-from .base import (
-    BlockBasedCodeGenerator,
-    ParamMode,
-    ParamSpec,
-)
+from .base import BlockBasedCodeGenerator
 
 
 def camelcase(s: str) -> str:
@@ -47,7 +44,6 @@ class JavaCodeGenerator(BlockBasedCodeGenerator):
         - is_constructor: whether the function is a constructor
         """
         spec = self.get_function_descriptor(name)
-        params = self.get_parameters_for_function(name)
         is_constructor = False
 
         # We will collect data related to the current function in a dict
@@ -57,8 +53,8 @@ class JavaCodeGenerator(BlockBasedCodeGenerator):
 
         # Check parameter types to determine Java calling semantics
         types = {"IN": [], "OUT": [], "INOUT": []}
-        for p in params:
-            types[params[p].mode_str].append(params[p])
+        for param in spec.iter_parameters():
+            types[param.mode_str].append(param)
 
         if len(types["OUT"]) + len(types["INOUT"]) == 1:
             # If a single one is OUT or INOUT and all others are
@@ -80,14 +76,15 @@ class JavaCodeGenerator(BlockBasedCodeGenerator):
         # Loop through the input parameters
         method_arguments = []
         found_self = False
-        for p in params:
-            if params[p].mode_str != "IN":
+        for param in spec.iter_parameters():
+            if param.mode is ParamMode.IN:
                 continue
-            type_name = params[p].type
+
+            type_name = param.type
             if not found_self and type_name == "GRAPH":
                 # this will be the 'self' argument
                 found_self = True
-                data["self_name"] = p
+                data["self_name"] = param.name
                 continue
             tdesc = self.types.get(type_name, {})
             if type_param not in tdesc:
@@ -96,15 +93,15 @@ class JavaCodeGenerator(BlockBasedCodeGenerator):
                         data["name"], type_name, type_param
                     )
                 )
-            method_arguments.append(" ".join([tdesc[type_param], p]))
+            method_arguments.append(" ".join([tdesc[type_param], param.name]))
         data["argument_types"] = method_arguments
 
         if not found_self:
             # Loop through INOUT arguments if we found no "self" yet
-            for p in params:
-                if params[p].mode is ParamMode.OUT and params[p].type == "GRAPH":
+            for param in spec.iter_parameters():
+                if param.mode is ParamMode.OUT and param.type == "GRAPH":
                     found_self = True
-                    data["self_name"] = p
+                    data["self_name"] = param.name
                     break
 
         tdesc = self.types.get(return_type_name, {})
@@ -148,28 +145,25 @@ class JavaCCodeGenerator(JavaCodeGenerator):
             out.write("\n/* %s */\n" % str(e))
             return
 
-        params = self.get_parameters_for_function(function)
-        self.deps = self.get_dependencies_for_function(function)
-
         # Check types
-        for p in params:
-            tname = params[p].type
-            if tname not in self.types:
-                self.log.error(f"Unknown type {tname} in {function}")
-                return
+        if not self.check_types_of_function(function, "error"):
+            return
+
+        desc = self.get_function_descriptor(function)
 
         ## Compile the output
         ## This code generator is quite difficult, so we use different
         ## functions to generate the approprite chunks and then
         ## compile them together using a simple template.
         ## See the documentation of each chunk below.
+        params = desc.parameters
         try:
             res = {}
             res["func"] = function
             res["header"] = self.chunk_header(function, params)
             res["decl"] = self.chunk_declaration(function, params)
             res["before"] = self.chunk_before(function, params)
-            res["inconv"] = self.chunk_inconv(function, params)
+            res["inconv"] = self.chunk_inconv(function)
             res["call"] = self.chunk_call(function, params)
             res["outconv"] = self.chunk_outconv(function, params)
             res["after"] = self.chunk_after(function, params)
@@ -309,7 +303,7 @@ class JavaCCodeGenerator(JavaCodeGenerator):
         """We simply call Java_igraph_before"""
         return "  Java_igraph_before();"
 
-    def chunk_inconv(self, function: str, params: Dict[str, ParamSpec]) -> str:
+    def chunk_inconv(self, function: str) -> str:
         """Input conversions. Not only for types with mode 'IN' and
         'INOUT', eg. for 'OUT' vector types we need to allocate the
         required memory here, do all the initializations, etc. Types
@@ -317,23 +311,23 @@ class JavaCCodeGenerator(JavaCodeGenerator):
         performed at the end.
         """
 
-        def do_par(pname):
-            cname = "c_" + pname
-            t = self.types[params[pname].type]
-            mode = params[pname].mode_str
+        desc = self.get_function_descriptor(function)
+
+        def do_par(param: ParamSpec):
+            cname = "c_" + param.name
+            t = self.types[param.type]
+            mode = param.mode_str
             if "INCONV" in t and mode in t["INCONV"]:
                 inconv = "  " + t["INCONV"][mode]
             else:
                 inconv = ""
 
-            if pname in self.deps:
-                deps = self.deps[pname]
-                for i, dep in enumerate(deps):
-                    inconv = inconv.replace("%C" + str(i + 1) + "%", "c_" + dep)
+            for i, dep in enumerate(param.dependencies):
+                inconv = inconv.replace("%C" + str(i + 1) + "%", "c_" + dep)
 
-            return inconv.replace("%C%", cname).replace("%I%", pname)
+            return inconv.replace("%C%", cname).replace("%I%", param.name)
 
-        inconv = [do_par(n) for n in params]
+        inconv = [do_par(param) for param in desc.iter_parameters()]
         inconv = [i for i in inconv if i != ""]
 
         return "\n".join(inconv)

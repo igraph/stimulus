@@ -11,6 +11,7 @@ license = "GPL-2.0-or-later"
 [tool.poetry.dependencies]
 python = "^3.7"
 PyYAML = "^6.0"
+deepmerge = "^0.3.0"
 
 [tool.poetry.dev-dependencies]
 

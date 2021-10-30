@@ -3,31 +3,26 @@
 TODO: free memory when CTRL+C pressed, even on Windows
 """
 
-from typing import Dict, IO
-
 import re
 
-from stimulus.errors import StimulusError
+from typing import IO, Optional
 
-from .base import ParamMode, ParamSpec, SingleBlockCodeGenerator
+from stimulus.model import ParamMode, ParamSpec
+from stimulus.model.functions import FunctionDescriptor
+
+from .base import SingleBlockCodeGenerator
 
 
 class RRCodeGenerator(SingleBlockCodeGenerator):
     def generate_function(self, function: str, out: IO[str]) -> None:
-        spec = self.get_function_descriptor(function)
-
-        name = spec.get("NAME-R", function[1:].replace("_", "."))
-        params = self.get_parameters_for_function(function)
-        self.deps = self.get_dependencies_for_function(function)
-
         # Check types
-        for p in params:
-            tname = params[p].type
-            if tname not in self.types:
-                raise StimulusError("Unknown type encountered: {tname!r}")
+        self.check_types_of_function(function)
 
         # Get function specification
         spec = self.get_function_descriptor(function)
+
+        # Derive name of R function
+        name = spec.get("NAME-R", function[1:].replace("_", "."))
 
         ## Roxygen to export the function
         internal = spec.get("INTERNAL")
@@ -50,36 +45,38 @@ class RRCodeGenerator(SingleBlockCodeGenerator):
         out.write(name)
         out.write(" <- function(")
 
-        def handle_input_argument(pname: str) -> str:
-            tname = params[pname].type
+        def handle_input_argument(param: ParamSpec) -> str:
+            tname = param.type
             t = self.types[tname]
             default = ""
-            header = pname.replace("_", ".")
+            header = param.name.replace("_", ".")
             if "HEADER" in t:
                 header = t["HEADER"]
             if header:
-                header = header.replace("%I%", pname.replace("_", "."))
+                header = header.replace("%I%", param.name.replace("_", "."))
             else:
                 header = ""
-            if params[pname].default is not None:
-                if "DEFAULT" in t and params[pname].default in t["DEFAULT"]:
-                    default = "=" + t["DEFAULT"][params[pname].default]
+            if param.default is not None:
+                if "DEFAULT" in t and param.default in t["DEFAULT"]:
+                    default = "=" + t["DEFAULT"][param.default]
                 else:
-                    default = "=" + str(params[pname].default)
+                    default = "=" + str(param.default)
+
             header = header + default
-            if pname in self.deps:
-                deps = self.deps[pname]
-                for i, dep in enumerate(deps):
-                    header = header.replace("%I" + str(i + 1) + "%", dep)
+
+            for i, dep in enumerate(param.dependencies):
+                header = header.replace("%I" + str(i + 1) + "%", dep)
+
             if re.search("%I[0-9]*%", header):
                 self.log.error(
-                    f"Missing HEADER dependency for {tname} {pname} in function {name}"
+                    f"Missing HEADER dependency for {tname} {param.name} in function {name}"
                 )
+
             return header
 
         head = [
-            handle_input_argument(name)
-            for name, param in params.items()
+            handle_input_argument(param)
+            for param in spec.iter_parameters()
             if param.is_input
         ]
         head = [h for h in head if h != ""]
@@ -97,30 +94,30 @@ class RRCodeGenerator(SingleBlockCodeGenerator):
         ## characters.
         out.write("  # Argument checks\n")
 
-        def handle_argument_check(pname: str) -> str:
-            tname = params[pname].type
+        def handle_argument_check(param: ParamSpec) -> str:
+            tname = param.type
             t = self.types[tname]
-            mode = params[pname].mode_str
-            if params[pname].is_input and "INCONV" in t:
+            mode = param.mode_str
+            if param.is_input and "INCONV" in t:
                 if mode in t["INCONV"]:
                     res = "  " + t["INCONV"][mode]
                 else:
                     res = "  " + t["INCONV"]
             else:
                 res = ""
-            res = res.replace("%I%", pname.replace("_", "."))
+            res = res.replace("%I%", param.name.replace("_", "."))
 
-            if pname in self.deps:
-                deps = self.deps[pname]
-                for i, dep in enumerate(deps):
-                    res = res.replace("%I" + str(i + 1) + "%", dep)
+            for i, dep in enumerate(param.dependencies):
+                res = res.replace("%I" + str(i + 1) + "%", dep)
+
             if re.search("%I[0-9]*%", res):
                 self.log.error(
-                    f"Missing IN dependency for {tname} {pname} in function {name}"
+                    f"Missing IN dependency for {tname} {param.name} in function {name}"
                 )
+
             return res
 
-        inconv = [handle_argument_check(n) for n in params]
+        inconv = [handle_argument_check(param) for param in spec.iter_parameters()]
         inconv = [i for i in inconv if i != ""]
         out.write("\n".join(inconv) + "\n\n")
 
@@ -139,10 +136,10 @@ class RRCodeGenerator(SingleBlockCodeGenerator):
         out.write("  res <- .Call(C_R_" + function + ", ")
 
         parts = []
-        for name, param in params.items():
+        for param in spec.iter_parameters():
             if param.is_input:
                 type = self.types[param.type]
-                name = name.replace("_", ".")
+                name = param.name.replace("_", ".")
                 call = type.get("CALL", name)
                 if call:
                     parts.append(call.replace("%I%", name))
@@ -151,34 +148,45 @@ class RRCodeGenerator(SingleBlockCodeGenerator):
         out.write(")\n")
 
         ## Output conversions
-        def handle_output_argument(pname, realname=None, iprefix=""):
+        def handle_output_argument(
+            param: ParamSpec,
+            realname: Optional[str] = None,
+            *,
+            iprefix: str = "",
+        ):
             if realname is None:
-                realname = pname
-            tname = params[pname].type
+                realname = param.name
+
+            tname = param.type
             t = self.types[tname]
-            mode = params[pname].mode_str
+            mode = param.mode_str
             if "OUTCONV" in t and mode in t["OUTCONV"]:
                 outconv = "  " + t["OUTCONV"][mode]
             else:
                 outconv = ""
             outconv = outconv.replace("%I%", iprefix + realname)
 
-            if pname in self.deps:
-                deps = self.deps[pname]
-                for i, dep in enumerate(deps):
-                    outconv = outconv.replace("%I" + str(i + 1) + "%", dep)
+            for i, dep in enumerate(param.dependencies):
+                outconv = outconv.replace("%I" + str(i + 1) + "%", dep)
+
             if re.search("%I[0-9]*%", outconv):
                 self.log.error(
-                    f"Missing OUT dependency for {tname} {pname} in function {name}"
+                    f"Missing OUT dependency for {tname} {param.name} in function {name}"
                 )
+
             return re.sub("%I[0-9]+%", "", outconv)
 
-        retpars = [name for name, param in params.items() if param.is_output]
+        retpars = [param.name for param in spec.iter_parameters() if param.is_output]
 
         if len(retpars) <= 1:
-            outconv = [handle_output_argument(name, "res") for name in params]
+            outconv = [
+                handle_output_argument(param, "res") for param in spec.iter_parameters()
+            ]
         else:
-            outconv = [handle_output_argument(name, iprefix="res$") for name in params]
+            outconv = [
+                handle_output_argument(param, iprefix="res$")
+                for param in spec.iter_parameters()
+            ]
 
         outconv = [o for o in outconv if o != ""]
 
@@ -233,15 +241,10 @@ class RRCodeGenerator(SingleBlockCodeGenerator):
 
 class RCCodeGenerator(SingleBlockCodeGenerator):
     def generate_function(self, function: str, out: IO[str]) -> None:
-        params = self.get_parameters_for_function(function)
-        self.deps = self.get_dependencies_for_function(function)
-
         # Check types
-        for p in params:
-            tname = params[p].type
-            if tname not in self.types:
-                self.log.error(f"Unknown type {tname} in {function}")
-                return
+        self.check_types_of_function(function, errors="error")
+
+        desc = self.get_function_descriptor(function)
 
         ## Compile the output
         ## This code generator is quite difficult, so we use different
@@ -250,11 +253,11 @@ class RCCodeGenerator(SingleBlockCodeGenerator):
         ## See the documentation of each chunk below.
         res = {}
         res["func"] = function
-        res["header"] = self.chunk_header(function, params)
-        res["decl"] = self.chunk_declaration(function, params)
-        res["inconv"] = self.chunk_inconv(function, params)
-        res["call"] = self.chunk_call(function, params)
-        res["outconv"] = self.chunk_outconv(function, params)
+        res["header"] = self.chunk_header(desc)
+        res["decl"] = self.chunk_declaration(desc)
+        res["inconv"] = self.chunk_inconv(desc)
+        res["call"] = self.chunk_call(desc)
+        res["outconv"] = self.chunk_outconv(desc)
 
         # Replace into the template
         text = (
@@ -280,27 +283,28 @@ class RCCodeGenerator(SingleBlockCodeGenerator):
 
         out.write(text)
 
-    def chunk_header(self, function, params):
+    def chunk_header(self, desc: FunctionDescriptor) -> str:
         """The header. All functions return with a 'SEXP', so this is
         easy. We just take the 'IN' and 'INOUT' arguments, all will
         have type SEXP, and concatenate them by commas. The function name
-        is created by prefixing the original name with 'R_'."""
+        is created by prefixing the original name with 'R_'.
+        """
 
-        def do_par(pname):
-            t = self.types[params[pname].type]
+        def do_par(spec: ParamSpec) -> str:
+            t = self.types[spec.type]
             if "HEADER" in t:
                 if t["HEADER"]:
-                    return t["HEADER"].replace("%I%", pname)
+                    return t["HEADER"].replace("%I%", spec.name)
                 else:
                     return ""
             else:
-                return pname
+                return spec.name
 
-        inout = [do_par(n) for n, p in params.items() if p.is_input]
+        inout = [do_par(spec) for spec in desc.iter_parameters() if spec.is_input]
         inout = ["SEXP " + n for n in inout if n != ""]
-        return "SEXP R_" + function + "(" + ", ".join(inout) + ")"
+        return "SEXP R_" + desc.name + "(" + ", ".join(inout) + ")"
 
-    def chunk_declaration(self, function: str, params: Dict[str, ParamSpec]) -> str:
+    def chunk_declaration(self, desc: FunctionDescriptor) -> str:
         """There are a couple of things to declare. First a C type is
         needed for every argument, these will be supplied in the C
         igraph call. Then, all 'OUT' arguments need a SEXP variable as
@@ -310,38 +314,39 @@ class RCCodeGenerator(SingleBlockCodeGenerator):
         final result, these are last. ('names' is not always used, but
         it is easier to always declare it.)
         """
-        spec = self.get_function_descriptor(function)
 
-        def do_par(pname):
-            cname = "c_" + pname
-            t = self.types[params[pname].type]
+        def do_par(spec: ParamSpec) -> str:
+            cname = f"c_{spec.name}"
+            t = self.types[spec.type]
             if "DECL" in t:
                 decl = "  " + t["DECL"]
             elif "CTYPE" in t:
                 ctype = t["CTYPE"]
-                if type(ctype) == dict:
-                    mode = params[pname].mode_str
+                if isinstance(ctype, dict):
+                    mode = spec.mode_str
                     decl = "  " + ctype[mode] + " " + cname + ";"
                 else:
                     decl = "  " + ctype + " " + cname + ";"
             else:
                 decl = ""
-            return decl.replace("%C%", cname).replace("%I%", pname)
+            return decl.replace("%C%", cname).replace("%I%", spec.name)
 
-        inout = [do_par(n) for n in params]
+        inout = [do_par(spec) for spec in desc.iter_parameters()]
         out = [
-            "  SEXP " + n + ";" for n, p in params.items() if p.mode is ParamMode.OUT
+            f"  SEXP {spec.name};"
+            for spec in desc.iter_parameters()
+            if spec.mode is ParamMode.OUT
         ]
 
-        retpars = [n for n, p in params.items() if p.is_output]
+        retpars = [spec.name for spec in desc.iter_parameters() if spec.is_output]
 
-        rt = self.types[spec.return_type]
+        rt = self.types[desc.return_type]
         if "DECL" in rt:
             retdecl = "  " + rt["DECL"]
         elif "CTYPE" in rt and len(retpars) == 0:
             ctype = rt["CTYPE"]
             if type(ctype) == dict:
-                retdecl = "  " + ctype["OUT"] + " " + "c_result;"
+                retdecl = "  " + ctype["OUT"] + " c_result;"
             else:
                 retdecl = "  " + rt["CTYPE"] + " c_result;"
         else:
@@ -353,7 +358,7 @@ class RCCodeGenerator(SingleBlockCodeGenerator):
             res = "\n".join(inout + out + [retdecl] + ["  SEXP result, names;"])
         return res
 
-    def chunk_inconv(self, function: str, params: Dict[str, ParamSpec]) -> str:
+    def chunk_inconv(self, desc: FunctionDescriptor) -> str:
         """Input conversions. Not only for types with mode 'IN' and
         'INOUT', eg. for 'OUT' vector types we need to allocate the
         required memory here, do all the initializations, etc. Types
@@ -361,28 +366,26 @@ class RCCodeGenerator(SingleBlockCodeGenerator):
         performed at the end.
         """
 
-        def do_par(pname):
-            cname = "c_" + pname
-            t = self.types[params[pname].type]
-            mode = params[pname].mode_str
+        def do_par(param: ParamSpec) -> str:
+            cname = "c_" + param.name
+            t = self.types[param.type]
+            mode = param.mode_str
             if "INCONV" in t and mode in t["INCONV"]:
                 inconv = "  " + t["INCONV"][mode]
             else:
                 inconv = ""
 
-            if pname in self.deps:
-                deps = self.deps[pname]
-                for i, dep in enumerate(deps):
-                    inconv = inconv.replace("%C" + str(i + 1) + "%", "c_" + dep)
+            for i, dep in enumerate(param.dependencies):
+                inconv = inconv.replace("%C" + str(i + 1) + "%", "c_" + dep)
 
-            return inconv.replace("%C%", cname).replace("%I%", pname)
+            return inconv.replace("%C%", cname).replace("%I%", param.name)
 
-        inconv = [do_par(n) for n in params]
+        inconv = [do_par(param) for param in desc.iter_parameters()]
         inconv = [i for i in inconv if i != ""]
 
         return "\n".join(inconv)
 
-    def chunk_call(self, function: str, params: Dict[str, ParamSpec]) -> str:
+    def chunk_call(self, desc: FunctionDescriptor) -> str:
         """Every single argument is included, independently of their
         mode. If a type has a 'CALL' field then that is used after the
         usual %C% and %I% substitutions, otherwise the standard 'c_'
@@ -390,8 +393,8 @@ class RCCodeGenerator(SingleBlockCodeGenerator):
         """
 
         calls = []
-        for name, param in params.items():
-            type = self.types[param.type].get("CALL", "c_" + name)
+        for param in desc.iter_parameters():
+            type = self.types[param.type].get("CALL", f"c_{param.name}")
 
             if isinstance(type, dict):
                 call = type.get(param.mode_str, "")
@@ -399,17 +402,17 @@ class RCCodeGenerator(SingleBlockCodeGenerator):
                 call = type
 
             if call:
-                call = call.replace("%C%", f"c_{name}").replace("%I%", name)
+                call = call.replace("%C%", f"c_{param.name}").replace("%I%", param.name)
                 calls.append(call)
 
-        retpars = [name for name, param in params.items() if param.is_output]
+        retpars = [param.name for param in desc.iter_parameters() if param.is_output]
         calls = ", ".join(calls)
-        res = f"  {function}({calls});\n"
-        if len(retpars) == 0:
-            res = "  c_result=" + res
+        res = f"  {desc.name}({calls});\n"
+        if not retpars:
+            res = f"  c_result={res}"
         return res
 
-    def chunk_outconv(self, function: str, params: Dict[str, ParamSpec]) -> str:
+    def chunk_outconv(self, spec: FunctionDescriptor) -> str:
         """The output conversions, this is quite difficult. A function
         may report its results in two ways: by returning it directly
         or by setting a variable to which a pointer was passed. igraph
@@ -432,28 +435,26 @@ class RCCodeGenerator(SingleBlockCodeGenerator):
         collected in a named list. The names come from the argument
         names.
         """
-        spec = self.get_function_descriptor(function)
 
-        def do_par(pname):
-            cname = "c_" + pname
-            t = self.types[params[pname].type]
-            mode = params[pname].mode_str
+        def do_par(param: ParamSpec) -> str:
+            cname = f"c_{param.name}"
+            t = self.types[param.type]
+            mode = param.mode_str
             if "OUTCONV" in t and mode in t["OUTCONV"]:
                 outconv = "  " + t["OUTCONV"][mode]
             else:
                 outconv = ""
 
-            if pname in list(self.deps.keys()):
-                deps = self.deps[pname]
-                for i, dep in enumerate(deps):
-                    outconv = outconv.replace("%C" + str(i + 1) + "%", "c_" + dep)
-            return outconv.replace("%C%", cname).replace("%I%", pname)
+            for i, dep in enumerate(param.dependencies):
+                outconv = outconv.replace("%C" + str(i + 1) + "%", "c_" + dep)
 
-        outconv = [do_par(n) for n in params]
+            return outconv.replace("%C%", cname).replace("%I%", param.name)
+
+        outconv = [do_par(param) for param in spec.iter_parameters()]
         outconv = [o for o in outconv if o != ""]
 
-        retpars = [n for n, p in params.items() if p.is_output]
-        if len(retpars) == 0:
+        retpars = [param.name for param in spec.iter_parameters() if param.is_output]
+        if not retpars:
             # return the return value of the function
             rt = self.types[spec.return_type]
             if "OUTCONV" in rt:
@@ -468,34 +469,23 @@ class RCCodeGenerator(SingleBlockCodeGenerator):
             ret = "\n".join(outconv) + "\n" + retconv
         else:
             # create a list of output values
-            sets = list(
-                map(
-                    lambda c, n: "  SET_VECTOR_ELT(result, " + str(c) + ", " + n + ");",
-                    range(len(retpars)),
-                    retpars,
-                )
-            )
-            names = list(
-                map(
-                    lambda c, n: "  SET_STRING_ELT(names, "
-                    + str(c)
-                    + ', CREATE_STRING_VECTOR("'
-                    + n
-                    + '"));',
-                    range(len(retpars)),
-                    retpars,
-                )
-            )
+            sets = [
+                f"  SET_VECTOR_ELT(result, {index}, {name});"
+                for index, name in enumerate(retpars)
+            ]
+            names = [
+                f'  SET_STRING_ELT(names, {index}, CREATE_STRING_VECTOR("{name}"));'
+                for index, name in enumerate(retpars)
+            ]
             ret = "\n".join(
                 [
-                    "  PROTECT(result=NEW_LIST(" + str(len(retpars)) + "));",
-                    "  PROTECT(names=NEW_CHARACTER(" + str(len(retpars)) + "));",
+                    f"  PROTECT(result=NEW_LIST({len(retpars)}));",
+                    f"  PROTECT(names=NEW_CHARACTER({len(retpars)}));",
                 ]
                 + outconv
                 + sets
                 + names
-                + ["  SET_NAMES(result, names);"]
-                + ["  UNPROTECT(" + str(len(sets) + 1) + ");"]
+                + ["  SET_NAMES(result, names);", f"  UNPROTECT({len(sets) + 1});"]
             )
 
         return ret
