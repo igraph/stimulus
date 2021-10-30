@@ -10,7 +10,6 @@ from typing import (
     Optional,
     Set,
     Tuple,
-    Union,
 )
 
 from stimulus.model.parameters import ParamSpec
@@ -29,6 +28,7 @@ class FunctionDescriptor(Mapping[str, Any]):
     _obj: Dict[str, str] = field(default_factory=dict)
     _parameters: Optional[OrderedDict[str, ParamSpec]] = None
 
+    flags: Set[str] = field(default_factory=set)
     ignored_by: Set[str] = field(default_factory=set)
     return_type: str = "ERROR"
 
@@ -42,10 +42,23 @@ class FunctionDescriptor(Mapping[str, Any]):
         return len(self._obj)
 
     @property
+    def is_internal(self) -> bool:
+        """Returns whether the function is internal (i.e. should not be exported
+        in the public namespace of the generated higher-level interface.
+        """
+        return self.has_flag("internal")
+
+    @property
     def parameters(self) -> OrderedDict[str, ParamSpec]:
         if self._parameters is None:
             self._parameters = self._parse_parameter_specifications()
         return self._parameters
+
+    def has_flag(self, flag: str) -> bool:
+        """Checks whether the function descriptor has the given flag, in a
+        case-insensitive manner.
+        """
+        return flag.lower() in self.flags
 
     def iter_parameters(self) -> Iterable[ParamSpec]:
         """Iterates over the parameters of this function in the order they
@@ -73,6 +86,10 @@ class FunctionDescriptor(Mapping[str, Any]):
             of generators that will ignore this function. ``IGNORE`` may also
             be a string, in which case it will be split along commas.
 
+          - The values from the ``FLAGS`` list are merged with the existing
+            flags. ``FLAGS`` may also be a string, in which case it will be
+            split along commas.
+
           - Any other key in `obj` is merged with the existing key-value store.
         """
         if "PARAMS" in obj:
@@ -91,15 +108,18 @@ class FunctionDescriptor(Mapping[str, Any]):
 
         always_merger.merge(self._obj, obj)
 
-        ignore: Union[Iterable[str], str] = self._obj.pop("IGNORE", "")
-        if ignore:
-            if isinstance(ignore, str):
-                it = iter(ignore.split(","))
-            elif hasattr(ignore, "__iter__"):
-                it = iter(ignore)
+        it = self._parse_as_comma_separated_list("IGNORE")
+        self.ignored_by |= set(it)
+
+        it = self._parse_as_comma_separated_list("FLAGS")
+        self.flags |= set(flag.lower() for flag in it)
+
+        is_internal = self._parse_as_boolean("INTERNAL")
+        if is_internal is not None:
+            if is_internal is True:
+                self.flags.add("internal")
             else:
-                raise RuntimeError("IGNORE key must map to a string or a list")
-            self.ignored_by |= set(part.strip() for part in it)
+                self.flags.discard("internal")
 
         return_type: str = self._obj.pop("RETURN", "")
         if return_type:
@@ -115,6 +135,31 @@ class FunctionDescriptor(Mapping[str, Any]):
         deps = [[dd.strip() for dd in item] for item in deps]
 
         return {str(name): tuple(values) for name, *values in deps}
+
+    def _parse_as_boolean(self, key: str) -> Optional[bool]:
+        value = self._obj.pop(key, None)
+        if value is None:
+            return None
+        elif isinstance(value, (int, float)):
+            return bool(value)
+        elif isinstance(value, str):
+            return value.lower() in ("true", "yes", "y")
+        else:
+            return bool(value)
+
+    def _parse_as_comma_separated_list(self, key: str) -> Iterable[str]:
+        value = self._obj.pop(key, None)
+        if value is None:
+            return ()
+        if isinstance(value, str):
+            return (part.strip() for part in value.split(","))
+        elif hasattr(value, "__iter__"):
+            return (part.strip() for part in value)  # type: ignore
+        else:
+            if key:
+                raise RuntimeError(f"{key!r} key must map to a string or a list")
+            else:
+                raise RuntimeError("key must map to a string or a list")
 
     def _parse_parameter_specifications(self) -> OrderedDict[str, ParamSpec]:
         param_spec_str = self._obj.get("PARAMS")

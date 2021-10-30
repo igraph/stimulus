@@ -25,8 +25,7 @@ class RRCodeGenerator(SingleBlockCodeGenerator):
         name = spec.get("NAME-R", function[1:].replace("_", "."))
 
         ## Roxygen to export the function
-        internal = spec.get("INTERNAL")
-        if internal is None or internal == "False":
+        if not spec.is_internal:
             out.write("#' @export\n")
 
         ## Header
