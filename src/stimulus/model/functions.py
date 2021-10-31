@@ -12,7 +12,7 @@ from typing import (
     Tuple,
 )
 
-from stimulus.model.parameters import ParamSpec
+from .parameters import ParamSpec
 
 __all__ = ("FunctionDescriptor",)
 

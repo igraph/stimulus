@@ -19,7 +19,7 @@ from typing import (
 
 from stimulus.errors import StimulusError
 from stimulus.legacy.parser import Parser as LegacyParser
-from stimulus.model import FunctionDescriptor
+from stimulus.model import FunctionDescriptor, TypeDescriptor
 
 __all__ = (
     "BlockBasedCodeGenerator",
@@ -109,9 +109,9 @@ class CodeGeneratorBase(CodeGenerator):
 
     log: Logger
     name: str
-    types: Dict[str, Any]
 
     _function_descriptors: Dict[str, FunctionDescriptor]
+    _type_descriptors: Dict[str, TypeDescriptor]
 
     _deps_cache: Dict[str, Dict[str, Tuple[str, ...]]]
     _ignore_cache: Dict[str, bool]
@@ -127,7 +127,7 @@ class CodeGeneratorBase(CodeGenerator):
         self.log = _DummyLogger()  # type: ignore
 
         self._function_descriptors = OrderedDict()
-        self.types = OrderedDict()
+        self._type_descriptors = {}
 
         self._deps_cache = {}
         self._ignore_cache = {}
@@ -152,7 +152,7 @@ class CodeGeneratorBase(CodeGenerator):
 
         for param in spec.iter_parameters():
             type_name = param.type
-            if type_name not in self.types:
+            if type_name not in self._type_descriptors:
                 message = (
                     f"Parameter {param.name!r} of {function}() is of type "
                     f"{type_name!r}, but it is not known to the type system"
@@ -175,11 +175,7 @@ class CodeGeneratorBase(CodeGenerator):
 
     def load_function_descriptors_from_object(self, obj: Dict[str, Any]) -> None:
         for name, spec in obj.items():
-            descriptor = self._function_descriptors.get(name)
-            if not descriptor:
-                self._function_descriptors[name] = descriptor = FunctionDescriptor(
-                    name=name
-                )
+            descriptor = self.get_or_create_function_descriptor(name)
             descriptor.update_from(spec)
 
     def load_type_descriptors_from_file(self, filename: str) -> None:
@@ -187,13 +183,32 @@ class CodeGeneratorBase(CodeGenerator):
         self.load_type_descriptors_from_object(specs)
 
     def load_type_descriptors_from_object(self, obj: Dict[str, Any]) -> None:
-        self.types.update(obj)
+        for name, spec in obj.items():
+            descriptor = self.get_or_create_type_descriptor(name)
+            descriptor.update_from(spec)
 
     def use_logger(self, log: Logger) -> None:
         self.log = log
 
     def get_function_descriptor(self, name: str) -> FunctionDescriptor:
         return self._function_descriptors[name]
+
+    def get_or_create_function_descriptor(self, name: str) -> FunctionDescriptor:
+        try:
+            descriptor = self.get_function_descriptor(name)
+        except KeyError:
+            descriptor = self._function_descriptors[name] = FunctionDescriptor(name)
+        return descriptor
+
+    def get_type_descriptor(self, name: str) -> TypeDescriptor:
+        return self._type_descriptors[name]
+
+    def get_or_create_type_descriptor(self, name: str) -> TypeDescriptor:
+        try:
+            descriptor = self.get_type_descriptor(name)
+        except KeyError:
+            descriptor = self._type_descriptors[name] = TypeDescriptor(name)
+        return descriptor
 
     @abstractmethod
     def generate_function(self, name: str, output: IO[str]) -> None:

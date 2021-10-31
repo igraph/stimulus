@@ -5,6 +5,7 @@ TODO: free memory when CTRL+C pressed, even on Windows
 
 import re
 
+from textwrap import indent
 from typing import IO, Optional
 
 from stimulus.model import ParamMode, ParamSpec
@@ -46,22 +47,22 @@ class RRCodeGenerator(SingleBlockCodeGenerator):
 
         def handle_input_argument(param: ParamSpec) -> str:
             tname = param.type
-            t = self.types[tname]
-            default = ""
+            type_desc = self.get_type_descriptor(tname)
             header = param.name.replace("_", ".")
-            if "HEADER" in t:
-                header = t["HEADER"]
+            if "HEADER" in type_desc:
+                header = type_desc["HEADER"]
             if header:
                 header = header.replace("%I%", param.name.replace("_", "."))
             else:
                 header = ""
-            if param.default is not None:
-                if "DEFAULT" in t and param.default in t["DEFAULT"]:
-                    default = "=" + t["DEFAULT"][param.default]
-                else:
-                    default = "=" + str(param.default)
 
-            header = header + default
+            if param.default is not None:
+                default = type_desc.translate_default_value(param.default)
+            else:
+                default = ""
+
+            if default:
+                header = f"{header}={default}"
 
             for i, dep in enumerate(param.dependencies):
                 header = header.replace("%I" + str(i + 1) + "%", dep)
@@ -95,7 +96,7 @@ class RRCodeGenerator(SingleBlockCodeGenerator):
 
         def handle_argument_check(param: ParamSpec) -> str:
             tname = param.type
-            t = self.types[tname]
+            t = self.get_type_descriptor(tname)
             mode = param.mode_str
             if param.is_input and "INCONV" in t:
                 if mode in t["INCONV"]:
@@ -137,7 +138,7 @@ class RRCodeGenerator(SingleBlockCodeGenerator):
         parts = []
         for param in spec.iter_parameters():
             if param.is_input:
-                type = self.types[param.type]
+                type = self.get_type_descriptor(param.type)
                 name = param.name.replace("_", ".")
                 call = type.get("CALL", name)
                 if call:
@@ -157,7 +158,7 @@ class RRCodeGenerator(SingleBlockCodeGenerator):
                 realname = param.name
 
             tname = param.type
-            t = self.types[tname]
+            t = self.get_type_descriptor(tname)
             mode = param.mode_str
             if "OUTCONV" in t and mode in t["OUTCONV"]:
                 outconv = "  " + t["OUTCONV"][mode]
@@ -191,7 +192,7 @@ class RRCodeGenerator(SingleBlockCodeGenerator):
 
         if len(retpars) == 0:
             # returning the return value of the function
-            rt = self.types[spec.return_type]
+            rt = self.get_type_descriptor(spec.return_type)
             if "OUTCONV" in rt:
                 retconv = "  " + rt["OUTCONV"]["OUT"]
             else:
@@ -290,7 +291,7 @@ class RCCodeGenerator(SingleBlockCodeGenerator):
         """
 
         def do_par(spec: ParamSpec) -> str:
-            t = self.types[spec.type]
+            t = self.get_type_descriptor(spec.type)
             if "HEADER" in t:
                 if t["HEADER"]:
                     return t["HEADER"].replace("%I%", spec.name)
@@ -315,47 +316,26 @@ class RCCodeGenerator(SingleBlockCodeGenerator):
         """
 
         def do_par(spec: ParamSpec) -> str:
-            cname = f"c_{spec.name}"
-            t = self.types[spec.type]
-            if "DECL" in t:
-                decl = "  " + t["DECL"]
-            elif "CTYPE" in t:
-                ctype = t["CTYPE"]
-                if isinstance(ctype, dict):
-                    mode = spec.mode_str
-                    decl = "  " + ctype[mode] + " " + cname + ";"
-                else:
-                    decl = "  " + ctype + " " + cname + ";"
-            else:
-                decl = ""
-            return decl.replace("%C%", cname).replace("%I%", spec.name)
+            type_desc = self.get_type_descriptor(spec.type)
+            return type_desc.declare_c_variable(f"c_{spec.name}", mode=spec.mode)
 
         inout = [do_par(spec) for spec in desc.iter_parameters()]
         out = [
-            f"  SEXP {spec.name};"
+            f"SEXP {spec.name};"
             for spec in desc.iter_parameters()
             if spec.mode is ParamMode.OUT
         ]
 
         retpars = [spec.name for spec in desc.iter_parameters() if spec.is_output]
 
-        rt = self.types[desc.return_type]
-        if "DECL" in rt:
-            retdecl = "  " + rt["DECL"]
-        elif "CTYPE" in rt and len(retpars) == 0:
-            ctype = rt["CTYPE"]
-            if type(ctype) == dict:
-                retdecl = "  " + ctype["OUT"] + " c_result;"
-            else:
-                retdecl = "  " + rt["CTYPE"] + " c_result;"
-        else:
-            retdecl = ""
+        return_type_desc = self.get_type_descriptor(desc.return_type)
+        retdecl = return_type_desc.declare_c_variable("c_result") if not retpars else ""
 
         if len(retpars) <= 1:
-            res = "\n".join(inout + out + [retdecl] + ["  SEXP result;"])
+            res = "\n".join(inout + out + [retdecl] + ["SEXP result;"])
         else:
-            res = "\n".join(inout + out + [retdecl] + ["  SEXP result, names;"])
-        return res
+            res = "\n".join(inout + out + [retdecl] + ["SEXP result, names;"])
+        return indent(res, "  ")
 
     def chunk_inconv(self, desc: FunctionDescriptor) -> str:
         """Input conversions. Not only for types with mode 'IN' and
@@ -367,7 +347,7 @@ class RCCodeGenerator(SingleBlockCodeGenerator):
 
         def do_par(param: ParamSpec) -> str:
             cname = "c_" + param.name
-            t = self.types[param.type]
+            t = self.get_type_descriptor(param.type)
             mode = param.mode_str
             if "INCONV" in t and mode in t["INCONV"]:
                 inconv = "  " + t["INCONV"][mode]
@@ -393,7 +373,7 @@ class RCCodeGenerator(SingleBlockCodeGenerator):
 
         calls = []
         for param in desc.iter_parameters():
-            type = self.types[param.type].get("CALL", f"c_{param.name}")
+            type = self.get_type_descriptor(param.type).get("CALL", f"c_{param.name}")
 
             if isinstance(type, dict):
                 call = type.get(param.mode_str, "")
@@ -437,7 +417,7 @@ class RCCodeGenerator(SingleBlockCodeGenerator):
 
         def do_par(param: ParamSpec) -> str:
             cname = f"c_{param.name}"
-            t = self.types[param.type]
+            t = self.get_type_descriptor(param.type)
             mode = param.mode_str
             if "OUTCONV" in t and mode in t["OUTCONV"]:
                 outconv = "  " + t["OUTCONV"][mode]
@@ -455,7 +435,7 @@ class RCCodeGenerator(SingleBlockCodeGenerator):
         retpars = [param.name for param in spec.iter_parameters() if param.is_output]
         if not retpars:
             # return the return value of the function
-            rt = self.types[spec.return_type]
+            rt = self.get_type_descriptor(spec.return_type)
             if "OUTCONV" in rt:
                 retconv = "  " + rt["OUTCONV"]["OUT"]
             else:

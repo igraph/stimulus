@@ -3,6 +3,7 @@
 TODO: - everything :) This is just a PoC implementation.
 """
 
+from textwrap import indent
 from typing import Any, Dict, IO
 
 from stimulus.errors import StimulusError
@@ -86,7 +87,7 @@ class JavaCodeGenerator(BlockBasedCodeGenerator):
                 found_self = True
                 data["self_name"] = param.name
                 continue
-            tdesc = self.types.get(type_name, {})
+            tdesc = self.get_or_create_type_descriptor(type_name)
             if type_param not in tdesc:
                 raise StimulusError(
                     "{}: unknown input type {} (needs {}), skipping".format(
@@ -104,7 +105,7 @@ class JavaCodeGenerator(BlockBasedCodeGenerator):
                     data["self_name"] = param.name
                     break
 
-        tdesc = self.types.get(return_type_name, {})
+        tdesc = self.get_or_create_type_descriptor(return_type_name)
         if type_param not in tdesc:
             raise StimulusError(
                 "{}: unknown return type {}, skipping".format(
@@ -240,40 +241,27 @@ class JavaCCodeGenerator(JavaCodeGenerator):
         (e.g. in the case of igraph_linegraph), we need a jclass variable
         to store the Java class object."""
 
-        spec = self.get_function_descriptor(function)
+        desc = self.get_function_descriptor(function)
 
-        def do_cpar(pname):
-            cname = "c_" + pname
-            t = self.types[params[pname].type]
-            if "CDECL" in t:
-                decl = "  " + t["CDECL"]
-            elif "CTYPE" in t:
-                decl = "  " + t["CTYPE"] + " " + cname + ";"
-            else:
-                decl = ""
-            return decl.replace("%C%", cname).replace("%I%", pname)
+        def do_cpar(spec: ParamSpec) -> str:
+            type_desc = self.get_type_descriptor(spec.type)
+            return type_desc.declare_c_variable(f"c_{spec.name}", mode=spec.mode)
 
-        def do_jpar(pname):
-            jname = "j_" + pname
-            t = self.types[params[pname].type]
-            if "JAVADECL" in t:
-                decl = "  " + t["JAVADECL"]
-            elif "JAVATYPE" in t:
-                decl = "  " + t["JAVATYPE"] + " " + jname + ";"
-            else:
-                decl = ""
-            return decl.replace("%J%", jname).replace("%I%", pname)
+        def do_jpar(spec: ParamSpec) -> str:
+            type_desc = self.get_type_descriptor(spec.type)
+            return type_desc.declare_c_variable(
+                f"j_{spec.name}", mode=spec.mode, name_token="%J%"
+            )
 
-        inout = [do_cpar(n) for n in params]
-        out = [do_jpar(n) for n, p in params.items() if p.mode is ParamMode.OUT]
+        inout = [do_cpar(param) for param in desc.iter_parameters()]
+        out = [
+            do_jpar(param)
+            for param in desc.iter_parameters()
+            if param.mode is ParamMode.OUT
+        ]
 
-        rt = self.types[spec.return_type]
-        if "CDECL" in rt:
-            retdecl = "  " + rt["CDECL"]
-        elif "CTYPE" in rt:
-            retdecl = "  " + rt["CTYPE"] + " c__result;"
-        else:
-            retdecl = ""
+        return_type_desc = self.get_type_descriptor(desc.return_type)
+        retdecl = return_type_desc.declare_c_variable("c__result")
 
         rnames = [n for n, p in params.items() if p.is_output]
         jretdecl = ""
@@ -281,23 +269,24 @@ class JavaCCodeGenerator(JavaCodeGenerator):
             n = rnames[0]
             rtname = params[n].type
         else:
-            rtname = spec.return_type
-        rt = self.types[rtname]
+            rtname = desc.return_type
+
+        rt = self.get_type_descriptor(rtname)
         if "JAVADECL" in rt:
-            jretdecl = "  " + rt["JAVADECL"]
+            jretdecl = rt["JAVADECL"]
         elif "JAVATYPE" in rt:
-            jretdecl = "  " + rt["JAVATYPE"] + " result;"
+            jretdecl = rt["JAVATYPE"] + " result;"
 
         decls = inout + out + [retdecl, jretdecl]
         if not self.metadata["is_static"] and rtname == "GRAPH":
             self.metadata["need_class_decl"] = True
             decls.append(
-                "  jclass cls = (*env)->GetObjectClass(env, %s);"
+                "jclass cls = (*env)->GetObjectClass(env, %s);"
                 % self.metadata["self_name"]
             )
         else:
             self.metadata["need_class_decl"] = False
-        return "\n".join([i for i in decls if i != ""])
+        return indent("\n".join(i for i in decls if i != ""), "  ")
 
     def chunk_before(self, function: str, params: Dict[str, ParamSpec]) -> str:
         """We simply call Java_igraph_before"""
@@ -315,7 +304,7 @@ class JavaCCodeGenerator(JavaCodeGenerator):
 
         def do_par(param: ParamSpec):
             cname = "c_" + param.name
-            t = self.types[param.type]
+            t = self.get_type_descriptor(param.type)
             mode = param.mode_str
             if "INCONV" in t and mode in t["INCONV"]:
                 inconv = "  " + t["INCONV"][mode]
@@ -338,7 +327,7 @@ class JavaCCodeGenerator(JavaCodeGenerator):
         usual %C% and %I% substitutions, otherwise the standard 'c_'
         prefixed C argument name is used.
         """
-        types = [self.types[params[n].type] for n in params]
+        types = [self.get_type_descriptor(params[n].type) for n in params]
         call = list(
             map(lambda t, n: t.get("CALL", "c_" + n), types, list(params.keys()))
         )
@@ -386,7 +375,7 @@ class JavaCCodeGenerator(JavaCodeGenerator):
         def do_par(pname):
             cname = "c_" + pname
             jname = "j_" + pname
-            t = self.types[params[pname].type]
+            t = self.get_type_descriptor(params[pname].type)
             mode = params[pname].mode_str
             if "OUTCONV" in t and mode in t["OUTCONV"]:
                 outconv = "  " + t["OUTCONV"][mode]
@@ -400,7 +389,7 @@ class JavaCCodeGenerator(JavaCodeGenerator):
         retpars = [(n, p) for n, p in params.items() if p.is_output]
         if len(retpars) == 0:
             # return the return value of the function
-            rt = self.types[spec.return_type]
+            rt = self.get_type_descriptor(spec.return_type)
             if "OUTCONV" in rt:
                 retconv = "  " + rt["OUTCONV"]["OUT"]
             else:

@@ -3,6 +3,7 @@ from the command line.
 """
 
 from collections import OrderedDict
+from textwrap import indent
 from typing import Any, Dict, IO
 
 from stimulus.model import ParamMode, ParamSpec
@@ -124,7 +125,7 @@ class ShellCodeGenerator(SingleBlockCodeGenerator):
         args = OrderedDict()
         for param in desc.iter_parameters():
             tname = param.type
-            t = self.types[tname]
+            t = self.get_type_descriptor(tname)
             mode = param.mode
             if "INCONV" in t or "OUTCONV" in t:
                 p = param.name
@@ -167,44 +168,39 @@ class ShellCodeGenerator(SingleBlockCodeGenerator):
         return "\n                                   ".join(res)
 
     def chunk_decl(self, name: str, params: Dict[str, ParamSpec]) -> str:
+        spec = self.get_function_descriptor(name)
+
         def do_par(pname):
-            t = self.types[params[pname].type]
-            if "DECL" in t:
-                decl = "  " + t["DECL"].replace("%C%", pname)
-            elif "CTYPE" in t:
-                decl = "  " + t["CTYPE"] + " " + pname
-            else:
-                decl = ""
-            if params[pname].default is not None:
-                if "DEFAULT" in t and params[pname].default in t["DEFAULT"]:
-                    default = "=" + t["DEFAULT"][params[pname].default]
-                else:
-                    default = "=" + str(params[pname].default)
+            param = params[name]
+            type_desc = self.get_type_descriptor(params[pname].type)
+            decl = type_desc.declare_c_variable(pname, mode=ParamMode.IN)
+
+            if param.default is not None:
+                default = type_desc.translate_default_value(param.default)
             else:
                 default = ""
+
             if decl:
-                return decl + default + ";"
+                if default:
+                    return f"{decl}={default};"
+                else:
+                    return f"{decl};"
             else:
                 return ""
 
         decl = [do_par(n) for n in params]
         inout = [
-            "  char* shell_arg_" + n + "=0;" for n, p in params.items() if p.is_output
+            "char* shell_arg_" + n + "=0;" for n, p in params.items() if p.is_output
         ]
-        spec = self.get_function_descriptor(name)
-        rt = self.types[spec.return_type]
-        if "DECL" in rt:
-            retdecl = "  " + rt["DECL"]
-        elif "CTYPE" in rt:
-            retdecl = "  " + rt["CTYPE"] + " shell_result;"
-        else:
-            retdecl = ""
+
+        return_type_desc = self.get_type_descriptor(spec.return_type)
+        retdecl = return_type_desc.declare_c_variable("shell_result")
 
         if spec.return_type != "ERROR":
-            retchar = '  char *shell_arg_shell_result="-";'
+            retchar = 'char *shell_arg_shell_result="-";'
         else:
             retchar = ""
-        return "\n".join(decl + inout + [retdecl, retchar])
+        return indent("\n".join(decl + inout + [retdecl, retchar]), "  ")
 
     def chunk_default(
         self, name: str, params: Dict[str, ParamSpec], args: Dict[str, Dict[str, str]]
@@ -228,7 +224,7 @@ class ShellCodeGenerator(SingleBlockCodeGenerator):
         args: Dict[str, Dict[str, str]],
     ) -> str:
         def do_par(pname):
-            t = self.types[params[pname].type]
+            t = self.get_type_descriptor(params[pname].type)
             mode = params[pname].mode_str
             if "INCONV" in t and mode in t["INCONV"]:
                 inconv = "" + t["INCONV"][mode]
@@ -264,7 +260,7 @@ class ShellCodeGenerator(SingleBlockCodeGenerator):
     def chunk_call(self, func_name: str, params: Dict[str, ParamSpec]) -> str:
         parts = []
         for name, spec in params.items():
-            type = self.types[spec.type]
+            type = self.get_type_descriptor(spec.type)
             call = type.get("CALL", name).replace("%C%", name)
             parts.append(call)
 
@@ -275,7 +271,7 @@ class ShellCodeGenerator(SingleBlockCodeGenerator):
         spec = self.get_function_descriptor(name)
 
         def do_par(pname):
-            t = self.types[params[pname].type]
+            t = self.get_type_descriptor(params[pname].type)
             mode = params[pname].mode_str
             if "OUTCONV" in t and mode in t["OUTCONV"]:
                 outconv = "  " + t["OUTCONV"][mode]
@@ -286,7 +282,7 @@ class ShellCodeGenerator(SingleBlockCodeGenerator):
             return outconv.replace("%C%", pname)
 
         outconv = [do_par(n) for n in params]
-        rt = self.types[spec.return_type]
+        rt = self.get_type_descriptor(spec.return_type)
         if "OUTCONV" in rt and "OUT" in rt["OUTCONV"]:
             rtout = "  " + rt["OUTCONV"]["OUT"]
         else:
