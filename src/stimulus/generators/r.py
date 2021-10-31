@@ -23,7 +23,7 @@ class RRCodeGenerator(SingleBlockCodeGenerator):
         spec = self.get_function_descriptor(function)
 
         # Derive name of R function
-        name = spec.get("NAME-R", function[1:].replace("_", "."))
+        name = spec.get_name_in_generated_code("R")
 
         ## Roxygen to export the function
         if not spec.is_internal:

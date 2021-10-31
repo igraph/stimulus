@@ -12,17 +12,6 @@ from stimulus.model import ParamMode, ParamSpec
 from .base import BlockBasedCodeGenerator
 
 
-def camelcase(s: str) -> str:
-    """Returns a camelCase version of the given string (as used in Java
-    libraries.
-    """
-    parts = s.split("_")
-    result = [parts.pop(0)]
-    for part in parts:
-        result.append(part.capitalize())
-    return "".join(result)
-
-
 class JavaCodeGenerator(BlockBasedCodeGenerator):
     """Class containing the common parts of JavaJavaCodeGenerator and
     JavaCCodeGenerator"""
@@ -49,7 +38,7 @@ class JavaCodeGenerator(BlockBasedCodeGenerator):
 
         # We will collect data related to the current function in a dict
         data = {}
-        data["name"] = spec.get("NAME-JAVA", camelcase(name[7:]))
+        data["name"] = spec.get_name_in_generated_code("Java")
         data["java_modifiers"] = ["public"]
 
         # Check parameter types to determine Java calling semantics

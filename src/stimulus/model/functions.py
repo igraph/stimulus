@@ -13,6 +13,7 @@ from typing import (
 )
 
 from .parameters import ParamSpec
+from .utils import camelcase
 
 __all__ = ("FunctionDescriptor",)
 
@@ -53,6 +54,22 @@ class FunctionDescriptor(Mapping[str, Any]):
         if self._parameters is None:
             self._parameters = self._parse_parameter_specifications()
         return self._parameters
+
+    def get_name_in_generated_code(self, language: str) -> str:
+        """Returns the proposed name of the function in code generated for the
+        given language.
+        """
+        lang_key = f"NAME-{language}"
+        result = self._obj.get(lang_key) or self._obj.get("NAME")
+        if result is None:
+            if language == "R":
+                return self.name[1:].replace("_", ".")
+            elif language == "Java":
+                return camelcase(self.name[7:])
+            else:
+                return self.name
+        else:
+            return result
 
     def has_flag(self, flag: str) -> bool:
         """Checks whether the function descriptor has the given flag, in a
