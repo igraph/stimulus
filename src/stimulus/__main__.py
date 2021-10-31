@@ -50,33 +50,33 @@ def create_argument_parser() -> ArgumentParser:
     parser.add_argument(
         "-f",
         "--functions",
+        action="append",
         metavar="FILE",
         help="use the given function definition FILE",
-        nargs="*",
     )
 
     parser.add_argument(
         "-l",
         "--language",
+        action="append",
         metavar="LANGUAGE",
         help="generate code in the given LANGUAGE",
-        nargs="*",
     )
 
     parser.add_argument(
         "-i",
         "--input",
+        action="append",
         metavar="FILE",
         help="read input from the given FILE",
-        nargs="*",
     )
 
     parser.add_argument(
         "-o",
         "--output",
+        action="append",
         metavar="FILE",
         help="write output to the given FILE. Use '-' for standard output.",
-        nargs="*",
     )
 
     return parser

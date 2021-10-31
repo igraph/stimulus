@@ -209,32 +209,54 @@ class RRCodeGenerator(SingleBlockCodeGenerator):
         out.write(ret)
 
         ## Some graph attributes to add
-        if "GATTR-R" in spec:
-            gattrs = spec["GATTR-R"].split(",")
-            gattrs = [ga.split(" IS ", 1) for ga in gattrs]
-            sstr = "  res <- set.graph.attribute(res, '{name}', '{val}')\n"
-            for ga in gattrs:
-                aname = ga[0].strip()
-                aval = ga[1].strip().replace("'", "\\'")
-                out.write(sstr.format(name=aname, val=aval))
+        if "R" not in spec:
+            # Convert legacy "GATTR-R", "GATTR-PARAM-R", "CLASS-R" and "PP-R"
+            r_namespace = {}
+            for key in ("GATTR", "GATTR-PARAM", "CLASS", "PP"):
+                r_key = f"{key}-R"
+                if r_key in spec:
+                    r_namespace[key] = spec[r_key]
+            if r_namespace:
+                spec._obj["R"] = r_namespace
 
-        ## Add some parameters as graph attributes
-        if "GATTR-PARAM-R" in spec:
-            pars = spec["GATTR-PARAM-R"].split(",")
+        r_spec = spec._obj.get("R", {})
+
+        ## Add graph attributes
+        if "GATTR" in r_spec:
+            gattrs = r_spec["GATTR"]
+            gattrs_dict = {}
+            if isinstance(gattrs, dict):
+                gattrs_dict.update(gattrs)
+            else:
+                for item in gattrs.split(","):
+                    name, value = item.split(" IS ", 1)
+                    name = name.strip()
+                    value = value.strip()
+                    gattrs_dict[name] = value
+            if gattrs_dict:
+                out.write(
+                    "\n".join(
+                        f"  res <- set.graph.attribute(res, '{name}', '{val}')"
+                        for name, val in gattrs_dict.items()
+                    )
+                    + "\n"
+                )
+
+        ## Add some parameters as additional graph attributes
+        if "GATTR-PARAM" in r_spec:
+            pars = r_spec["GATTR-PARAM"].split(",")
             pars = [p.strip().replace("_", ".") for p in pars]
             sstr = "  res <- set.graph.attribute(res, '{par}', {par})\n"
             for p in pars:
                 out.write(sstr.format(par=p))
 
         ## Set the class if requested
-        if "CLASS-R" in spec:
-            myclass = spec["CLASS-R"]
-            out.write('  class(res) <- "' + myclass + '"\n')
+        if "CLASS" in r_spec:
+            out.write(f'  class(res) <- "{r_spec["CLASS"]}"\n')
 
         ## See if there is a postprocessor
-        if "PP-R" in spec:
-            pp = spec["PP-R"]
-            out.write("  res <- " + pp + "(res)\n")
+        if "PP" in r_spec:
+            out.write(f'  res <- {r_spec["PP"]}(res)\n')
 
         out.write("  res\n}\n\n")
 

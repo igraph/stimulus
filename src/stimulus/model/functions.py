@@ -26,7 +26,7 @@ class FunctionDescriptor(Mapping[str, Any]):
 
     name: str
 
-    _obj: Dict[str, str] = field(default_factory=dict)
+    _obj: Dict[str, Any] = field(default_factory=dict)
     _parameters: Optional[OrderedDict[str, ParamSpec]] = None
 
     flags: Set[str] = field(default_factory=set)
@@ -121,7 +121,7 @@ class FunctionDescriptor(Mapping[str, Any]):
             if "DEPS" in self._obj:
                 raise RuntimeError("DEPS cannot be overridden in function descriptors")
 
-            self._dependencies = None
+            self._parameters = None
 
         always_merger.merge(self._obj, obj)
 

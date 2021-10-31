@@ -176,7 +176,8 @@ class CodeGeneratorBase(CodeGenerator):
     def load_function_descriptors_from_object(self, obj: Dict[str, Any]) -> None:
         for name, spec in obj.items():
             descriptor = self.get_or_create_function_descriptor(name)
-            descriptor.update_from(spec)
+            if spec is not None:
+                descriptor.update_from(spec)
 
     def load_type_descriptors_from_file(self, filename: str) -> None:
         specs = self._parse_file(filename)
@@ -185,7 +186,8 @@ class CodeGeneratorBase(CodeGenerator):
     def load_type_descriptors_from_object(self, obj: Dict[str, Any]) -> None:
         for name, spec in obj.items():
             descriptor = self.get_or_create_type_descriptor(name)
-            descriptor.update_from(spec)
+            if spec is not None:
+                descriptor.update_from(spec)
 
     def use_logger(self, log: Logger) -> None:
         self.log = log
