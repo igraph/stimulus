@@ -1,4 +1,3 @@
-from collections import OrderedDict
 from dataclasses import dataclass, field
 from deepmerge import always_merger
 from typing import (
@@ -8,6 +7,7 @@ from typing import (
     List,
     Mapping,
     Optional,
+    OrderedDict,
     Set,
     Tuple,
 )
