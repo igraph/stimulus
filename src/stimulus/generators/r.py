@@ -6,12 +6,15 @@ TODO: free memory when CTRL+C pressed, even on Windows
 import re
 
 from textwrap import indent
-from typing import IO, Optional
+from typing import Iterable, IO, Optional, Tuple
 
 from stimulus.model import ParamMode, ParamSpec
 from stimulus.model.functions import FunctionDescriptor
 
-from .base import SingleBlockCodeGenerator
+from .base import (
+    BlockBasedCodeGenerator,
+    SingleBlockCodeGenerator,
+)
 
 
 class RRCodeGenerator(SingleBlockCodeGenerator):
@@ -490,3 +493,42 @@ class RCCodeGenerator(SingleBlockCodeGenerator):
             )
 
         return ret
+
+
+class RInitCodeGenerator(BlockBasedCodeGenerator):
+    def _count_arguments(self, name: str) -> Tuple[int, int]:
+        desc = self.get_function_descriptor(name)
+        in_args, out_args = 0, 0
+        for param in desc.iter_parameters():
+            if param.type in ("DEPRECATED", "NULL"):
+                continue
+            if param.is_input:
+                in_args += 1
+            if param.is_output:
+                out_args += 1
+        return in_args, out_args
+
+    def generate_declarations_block(self, out: IO[str]) -> None:
+        for name in self.iter_functions():
+            self.generate_declaration(name, out)
+
+    def generate_declaration(self, name: str, out: IO[str]) -> None:
+        num_input_args, num_output_args = self._count_arguments(name)
+
+        # One output argument is used for the return value. The default generated
+        # R wrapper only uses the first output argument.
+        num_r_args = num_input_args
+
+        args = ", ".join(["SEXP"] * num_r_args)
+        out.write(f"extern SEXP R_{name}({args});\n")
+
+    def generate_function(self, name: str, out: IO[str]) -> None:
+        num_input_args, num_output_args = self._count_arguments(name)
+        num_r_args = "{:>2}".format(num_input_args)
+        padding = " " * (50 - len(name))
+        out.write(
+            f'    {{"R_{name}",{padding}(DL_FUNC) &R_{name},{padding}{num_r_args}}},\n'
+        )
+
+    def iter_functions(self, include_ignored: bool = False) -> Iterable[str]:
+        return sorted(super().iter_functions(include_ignored=include_ignored))

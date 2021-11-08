@@ -7,7 +7,7 @@ from typing import Callable
 
 from .generators.base import CodeGenerator
 from .generators.java import JavaCCodeGenerator, JavaJavaCodeGenerator  # noqa
-from .generators.r import RCCodeGenerator, RRCodeGenerator  # noqa
+from .generators.r import RCCodeGenerator, RInitCodeGenerator, RRCodeGenerator  # noqa
 from .generators.shell import ShellCodeGenerator  # noqa
 from .version import __version__
 
@@ -90,7 +90,7 @@ def main():
     parser = create_argument_parser()
     options = parser.parse_args()
 
-    type_files = options.types
+    type_files = options.types or ()
     function_files = options.functions
     inputs = options.input
     languages = options.language
