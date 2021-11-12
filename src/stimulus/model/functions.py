@@ -89,13 +89,10 @@ class FunctionDescriptor(Mapping[str, Any]):
 
         The rules are as follows:
 
-          - The ``PARAMS`` key cannot be overridden; if the function descriptor
-            already contains parameters and the new object being merged into it
-            also contains one, an error will be thrown.
+          - The ``PARAMS`` key from `obj` overwrites the previous parameter
+            description.
 
-          - The ``DEPS`` key cannot be overridden; if the function descriptor
-            already contains dependencies and the new object being merged into it
-            also contains one, an error will be thrown.
+          - The ``DEPS`` key from `obj` overwrites the previous dependencies.
 
           - The ``RETURN`` key from `obj` overwrites the previous return type.
 
@@ -110,17 +107,11 @@ class FunctionDescriptor(Mapping[str, Any]):
           - Any other key in `obj` is merged with the existing key-value store.
         """
         if "PARAMS" in obj:
-            if "PARAMS" in self._obj:
-                raise RuntimeError(
-                    "PARAMS cannot be overridden in function descriptors"
-                )
-
+            self._obj["PARAMS"] = ""
             self._parameters = None
 
         if "DEPS" in obj:
-            if "DEPS" in self._obj:
-                raise RuntimeError("DEPS cannot be overridden in function descriptors")
-
+            self._obj["DEPS"] = ""
             self._parameters = None
 
         always_merger.merge(self._obj, obj)
