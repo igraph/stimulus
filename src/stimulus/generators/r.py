@@ -457,7 +457,7 @@ class RCCodeGenerator(SingleBlockCodeGenerator):
         outconv = [do_par(param) for param in spec.iter_parameters()]
         outconv = [o for o in outconv if o != ""]
 
-        retpars = [param.name for param in spec.iter_parameters() if param.is_output]
+        retpars = [param for param in spec.iter_parameters() if param.is_output]
         if not retpars:
             # return the return value of the function
             rt = self.get_type_descriptor(spec.return_type)
@@ -469,17 +469,17 @@ class RCCodeGenerator(SingleBlockCodeGenerator):
             ret = "\n".join(outconv) + "\n" + retconv
         elif len(retpars) == 1:
             # return the single output value
-            retconv = "  result=" + retpars[0] + ";"
+            retconv = "  result=" + retpars[0].name + ";"
             ret = "\n".join(outconv) + "\n" + retconv
         else:
             # create a list of output values
             sets = [
-                f"  SET_VECTOR_ELT(result, {index}, {name});"
-                for index, name in enumerate(retpars)
+                f"  SET_VECTOR_ELT(result, {index}, {param.name});"
+                for index, param in enumerate(retpars)
             ]
             names = [
-                f'  SET_STRING_ELT(names, {index}, CREATE_STRING_VECTOR("{name}"));'
-                for index, name in enumerate(retpars)
+                f'  SET_STRING_ELT(names, {index}, CREATE_STRING_VECTOR("{param.name_as_output}"));'
+                for index, param in enumerate(retpars)
             ]
             ret = "\n".join(
                 [

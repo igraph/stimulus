@@ -104,6 +104,9 @@ class FunctionDescriptor(Mapping[str, Any]):
             flags. ``FLAGS`` may also be a string, in which case it will be
             split along commas.
 
+          - The mapping in the ``OUTPARAMNAMES`` key is merged with the
+            existing output parameter name mapping.
+
           - Any other key in `obj` is merged with the existing key-value store.
         """
         if "PARAMS" in obj:
@@ -112,6 +115,9 @@ class FunctionDescriptor(Mapping[str, Any]):
 
         if "DEPS" in obj:
             self._obj["DEPS"] = ""
+            self._parameters = None
+
+        if "OUTPARAMNAMES" in obj:
             self._parameters = None
 
         always_merger.merge(self._obj, obj)
@@ -170,8 +176,10 @@ class FunctionDescriptor(Mapping[str, Any]):
                 raise RuntimeError("key must map to a string or a list")
 
     def _parse_parameter_specifications(self) -> OrderedDict[str, ParamSpec]:
-        param_spec_str = self._obj.get("PARAMS")
         params: List[str]
+
+        param_spec_str = self._obj.get("PARAMS")
+        output_param_name_mapping = self._obj.get("OUTPARAMNAMES")
 
         if not param_spec_str:
             params = []
@@ -193,11 +201,20 @@ class FunctionDescriptor(Mapping[str, Any]):
                 if param:
                     param.add_dependency(dep)
                 else:
-                    # TODO(ntamas): this should be an error as soon as
-                    # R-igraph starts depending on igraph 0.9.5
-                    print(
+                    raise RuntimeError(
                         f"dependency declared on unknown argument {name!r} of "
                         f"function {self.name!r}"
+                    )
+
+        if output_param_name_mapping:
+            for name, new_name in output_param_name_mapping.items():
+                param = result.get(name)
+                if param and param.is_output:
+                    param.output_name_override = new_name or None
+                else:
+                    raise RuntimeError(
+                        f"output parameter name was overridden for unknown "
+                        f"output parameter {name!r} of function {self.name!r}"
                     )
 
         return result
