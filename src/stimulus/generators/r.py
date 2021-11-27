@@ -72,7 +72,7 @@ class RRCodeGenerator(SingleBlockCodeGenerator):
 
             if re.search("%I[0-9]*%", header):
                 self.log.error(
-                    f"Missing HEADER dependency for {tname} {param.name} in function {name}"
+                    f"Missing HEADER dependency for {tname} {param.name} in function {function}"
                 )
 
             return header
@@ -115,7 +115,7 @@ class RRCodeGenerator(SingleBlockCodeGenerator):
 
             if re.search("%I[0-9]*%", res):
                 self.log.error(
-                    f"Missing IN dependency for {tname} {param.name} in function {name}"
+                    f"Missing IN dependency for {tname} {param.name} in function {function}"
                 )
 
             return res
@@ -174,7 +174,7 @@ class RRCodeGenerator(SingleBlockCodeGenerator):
 
             if re.search("%I[0-9]*%", outconv):
                 self.log.error(
-                    f"Missing OUT dependency for {tname} {param.name} in function {name}"
+                    f"Missing OUT dependency for {tname} {param.name} in function {function}"
                 )
 
             return re.sub("%I[0-9]+%", "", outconv)
