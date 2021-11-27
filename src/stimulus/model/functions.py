@@ -63,7 +63,7 @@ class FunctionDescriptor(Mapping[str, Any]):
         result = self._obj.get(lang_key) or self._obj.get("NAME")
         if result is None:
             if language == "R":
-                return self.name[1:].replace("_", ".")
+                return self.name[7:]
             elif language == "Java":
                 return camelcase(self.name[7:])
             else:
