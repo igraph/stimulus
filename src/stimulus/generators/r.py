@@ -103,9 +103,9 @@ class RRCodeGenerator(SingleBlockCodeGenerator):
             mode = param.mode_str
             if param.is_input and "INCONV" in t:
                 if mode in t["INCONV"]:
-                    res = "  " + t["INCONV"][mode]
+                    res = indent(t["INCONV"][mode], "  ")
                 else:
-                    res = "  " + t["INCONV"]
+                    res = indent(t["INCONV"], "  ")
             else:
                 res = ""
             res = res.replace("%I%", param.name.replace("_", "."))
@@ -164,7 +164,7 @@ class RRCodeGenerator(SingleBlockCodeGenerator):
             t = self.get_type_descriptor(tname)
             mode = param.mode_str
             if "OUTCONV" in t and mode in t["OUTCONV"]:
-                outconv = "  " + t["OUTCONV"][mode]
+                outconv = indent(t["OUTCONV"][mode], "  ")
             else:
                 outconv = ""
             outconv = outconv.replace("%I%", iprefix + realname)
@@ -197,7 +197,7 @@ class RRCodeGenerator(SingleBlockCodeGenerator):
             # returning the return value of the function
             rt = self.get_type_descriptor(spec.return_type)
             if "OUTCONV" in rt:
-                retconv = "  " + rt["OUTCONV"]["OUT"]
+                retconv = indent(rt["OUTCONV"]["OUT"], "  ")
             else:
                 retconv = ""
             retconv = retconv.replace("%I%", "res")
@@ -375,7 +375,7 @@ class RCCodeGenerator(SingleBlockCodeGenerator):
             t = self.get_type_descriptor(param.type)
             mode = param.mode_str
             if "INCONV" in t and mode in t["INCONV"]:
-                inconv = "  " + t["INCONV"][mode]
+                inconv = indent(t["INCONV"][mode], "  ")
             else:
                 inconv = ""
 
@@ -445,7 +445,7 @@ class RCCodeGenerator(SingleBlockCodeGenerator):
             t = self.get_type_descriptor(param.type)
             mode = param.mode_str
             if "OUTCONV" in t and mode in t["OUTCONV"]:
-                outconv = "  " + t["OUTCONV"][mode]
+                outconv = indent(t["OUTCONV"][mode], "  ")
             else:
                 outconv = ""
 
@@ -462,7 +462,7 @@ class RCCodeGenerator(SingleBlockCodeGenerator):
             # return the return value of the function
             rt = self.get_type_descriptor(spec.return_type)
             if "OUTCONV" in rt:
-                retconv = "  " + rt["OUTCONV"]["OUT"]
+                retconv = indent(rt["OUTCONV"]["OUT"], "  ")
             else:
                 retconv = ""
             retconv = retconv.replace("%C%", "c_result").replace("%I%", "result")
