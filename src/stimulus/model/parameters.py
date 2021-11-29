@@ -12,13 +12,13 @@ class ParamMode(Enum):
     OUT = "out"
     INOUT = "inout"
 
-    @classmethod
-    def is_input(cls, value: "ParamMode") -> bool:
-        return value is cls.IN or value is cls.INOUT
+    @property
+    def is_input(self) -> bool:
+        return self is self.__class__.IN or self is self.__class__.INOUT
 
-    @classmethod
-    def is_output(cls, value: "ParamMode") -> bool:
-        return value is cls.OUT or value is cls.INOUT
+    @property
+    def is_output(self) -> bool:
+        return self is self.__class__.OUT or self is self.__class__.INOUT
 
 
 @dataclass

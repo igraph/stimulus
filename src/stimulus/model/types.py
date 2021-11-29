@@ -67,7 +67,18 @@ class TypeDescriptor(Mapping[str, Any]):
         """Returns a template string that specifies how parameters of this type
         should be converted when it is used as an input parameter.
         """
-        return self._get_conversion_template("INCONV", mode, default=default)
+        if "INCONV" in self:
+            inconv = self["INCONV"]
+            if isinstance(inconv, str):
+                return inconv if mode.is_input else default
+            elif isinstance(inconv, dict):
+                return inconv.get(mode.value.upper(), default)
+            else:
+                raise TypeError(
+                    f"INCONV should be a string or a dict for type {self.name}"
+                )
+        else:
+            return default
 
     def get_output_conversion_template_for(
         self, mode: ParamMode, *, default: str = ""
@@ -75,7 +86,18 @@ class TypeDescriptor(Mapping[str, Any]):
         """Returns a template string that specifies how parameters of this type
         should be converted when it is used as an output parameter.
         """
-        return self._get_conversion_template("OUTCONV", mode, default=default)
+        if "OUTCONV" in self:
+            outconv = self["OUTCONV"]
+            if isinstance(outconv, str):
+                return outconv if mode.is_output else default
+            elif isinstance(outconv, dict):
+                return outconv.get(mode.value.upper(), default)
+            else:
+                raise TypeError(
+                    f"OUTCONV should be a string or a dict for type {self.name}"
+                )
+        else:
+            return default
 
     def translate_default_value(self, value: Any) -> str:
         """Translates the default value of a parameter having this type to
@@ -96,19 +118,3 @@ class TypeDescriptor(Mapping[str, Any]):
           - Any key in `obj` is merged with the existing key-value store.
         """
         always_merger.merge(self._obj, obj)
-
-    def _get_conversion_template(
-        self, key: str, mode: ParamMode, *, default: str = ""
-    ) -> str:
-        if key in self:
-            inconv = self[key]
-            if isinstance(inconv, str):
-                return inconv
-            elif isinstance(inconv, dict):
-                return inconv.get(mode.value.upper(), default)
-            else:
-                raise TypeError(
-                    f"{key} should be a string or a dict for type {self.name}"
-                )
-        else:
-            return default

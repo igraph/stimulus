@@ -3,12 +3,12 @@ from the command line.
 """
 
 from collections import OrderedDict
-from textwrap import indent
 from typing import Any, Dict, IO
 
 from stimulus.model import ParamMode, ParamSpec
 
 from .base import SingleBlockCodeGenerator
+from .utils import create_indentation_function
 
 __all__ = ("ShellCodeGenerator",)
 
@@ -22,6 +22,8 @@ __all__ = ("ShellCodeGenerator",)
 #         environment variables (?): IGRAPH_INGRAPH, IGRAPH_OUTGRAPH
 ################################################################################
 
+
+indent = create_indentation_function("  ")
 
 FUNCTION_TEMPLATE = """\
 /*-------------------------------------------/
@@ -200,7 +202,7 @@ class ShellCodeGenerator(SingleBlockCodeGenerator):
             retchar = 'char *shell_arg_shell_result="-";'
         else:
             retchar = ""
-        return indent("\n".join(decl + inout + [retdecl, retchar]), "  ")
+        return indent("\n".join(decl + inout + [retdecl, retchar]))
 
     def chunk_default(
         self, name: str, params: Dict[str, ParamSpec], args: Dict[str, Dict[str, str]]
@@ -274,7 +276,7 @@ class ShellCodeGenerator(SingleBlockCodeGenerator):
             t = self.get_type_descriptor(params[pname].type)
             mode = params[pname].mode_str
             if "OUTCONV" in t and mode in t["OUTCONV"]:
-                outconv = "  " + t["OUTCONV"][mode]
+                outconv = indent(t["OUTCONV"][mode])
             else:
                 outconv = ""
             if pname.endswith("-out"):
@@ -284,7 +286,7 @@ class ShellCodeGenerator(SingleBlockCodeGenerator):
         outconv = [do_par(n) for n in params]
         rt = self.get_type_descriptor(spec.return_type)
         if "OUTCONV" in rt and "OUT" in rt["OUTCONV"]:
-            rtout = "  " + rt["OUTCONV"]["OUT"]
+            rtout = indent(rt["OUTCONV"]["OUT"])
         else:
             rtout = ""
         outconv.append(rtout.replace("%C%", "shell_result"))

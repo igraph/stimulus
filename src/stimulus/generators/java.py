@@ -3,13 +3,16 @@
 TODO: - everything :) This is just a PoC implementation.
 """
 
-from textwrap import indent
 from typing import Any, Dict, IO
 
 from stimulus.errors import StimulusError
 from stimulus.model import ParamMode, ParamSpec
 
 from .base import BlockBasedCodeGenerator
+from .utils import create_indentation_function
+
+
+indent = create_indentation_function("  ")
 
 
 class JavaCodeGenerator(BlockBasedCodeGenerator):
@@ -275,7 +278,7 @@ class JavaCCodeGenerator(JavaCodeGenerator):
             )
         else:
             self.metadata["need_class_decl"] = False
-        return indent("\n".join(i for i in decls if i != ""), "  ")
+        return indent("\n".join(i for i in decls if i != ""))
 
     def chunk_before(self, function: str, params: Dict[str, ParamSpec]) -> str:
         """We simply call Java_igraph_before"""
@@ -296,7 +299,7 @@ class JavaCCodeGenerator(JavaCodeGenerator):
             t = self.get_type_descriptor(param.type)
             inconv = t.get_input_conversion_template_for(param.mode)
             if inconv:
-                inconv = indent(inconv, "  ")
+                inconv = indent(inconv)
             for i, dep in enumerate(param.dependencies):
                 inconv = inconv.replace("%C" + str(i + 1) + "%", "c_" + dep)
 
@@ -364,7 +367,7 @@ class JavaCCodeGenerator(JavaCodeGenerator):
             t = self.get_type_descriptor(params[pname].type)
             outconv = t.get_output_conversion_template_for(params[pname].mode)
             if outconv:
-                outconv = indent(outconv, "  ")
+                outconv = indent(outconv)
             return outconv.replace("%C%", cname).replace("%I%", jname)
 
         outconv = [do_par(n) for n in params]
@@ -376,7 +379,7 @@ class JavaCCodeGenerator(JavaCodeGenerator):
             rt = self.get_type_descriptor(spec.return_type)
             retconv = rt.get_output_conversion_template_for(ParamMode.OUT)
             if retconv:
-                retconv = indent(retconv, "  ")
+                retconv = indent(retconv)
             retconv = retconv.replace("%C%", "c__result").replace("%I%", "result")
             if len(retconv) > 0:
                 outconv.append(retconv)
@@ -393,7 +396,7 @@ class JavaCCodeGenerator(JavaCodeGenerator):
 
             outconv.insert(0, "if (c__result == 0) {")
             outconv.extend(["} else {", "  result = 0;", "}"])
-            outconv = ["  %s" % line for line in outconv]
+            outconv = [indent(line) for line in outconv]
             ret = "\n".join(outconv)
         else:
             raise StimulusError(

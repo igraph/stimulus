@@ -5,7 +5,6 @@ TODO: free memory when CTRL+C pressed, even on Windows
 
 import re
 
-from textwrap import indent
 from typing import Iterable, IO, Optional, Tuple
 
 from stimulus.model import ParamMode, ParamSpec
@@ -15,6 +14,10 @@ from .base import (
     BlockBasedCodeGenerator,
     SingleBlockCodeGenerator,
 )
+from .utils import create_indentation_function
+
+
+indent = create_indentation_function("  ")
 
 
 class RRCodeGenerator(SingleBlockCodeGenerator):
@@ -100,9 +103,7 @@ class RRCodeGenerator(SingleBlockCodeGenerator):
         def handle_argument_check(param: ParamSpec) -> str:
             tname = param.type
             t = self.get_type_descriptor(tname)
-            res = t.get_input_conversion_template_for(param.mode)
-            if res:
-                res = indent(res, "  ")
+            res = indent(t.get_input_conversion_template_for(param.mode))
             res = res.replace("%I%", param.name.replace("_", "."))
             for i, dep in enumerate(param.dependencies):
                 res = res.replace("%I" + str(i + 1) + "%", dep)
@@ -156,9 +157,7 @@ class RRCodeGenerator(SingleBlockCodeGenerator):
 
             tname = param.type
             t = self.get_type_descriptor(tname)
-            outconv = t.get_output_conversion_template_for(param.mode)
-            if outconv:
-                outconv = indent(outconv, "  ")
+            outconv = indent(t.get_output_conversion_template_for(param.mode))
             outconv = outconv.replace("%I%", iprefix + realname)
             for i, dep in enumerate(param.dependencies):
                 outconv = outconv.replace("%I" + str(i + 1) + "%", dep)
@@ -187,9 +186,7 @@ class RRCodeGenerator(SingleBlockCodeGenerator):
         if len(retpars) == 0:
             # returning the return value of the function
             rt = self.get_type_descriptor(spec.return_type)
-            retconv = rt.get_output_conversion_template_for(ParamMode.OUT)
-            if retconv:
-                retconv = indent(retconv, "  ")
+            retconv = indent(rt.get_output_conversion_template_for(ParamMode.OUT))
             retconv = retconv.replace("%I%", "res")
             # TODO: %I1% etc, is not handled here!
             ret = "\n".join(outconv) + "\n" + retconv + "\n"
@@ -350,7 +347,7 @@ class RCCodeGenerator(SingleBlockCodeGenerator):
             res = "\n".join(inout + out + [retdecl] + ["SEXP result;"])
         else:
             res = "\n".join(inout + out + [retdecl] + ["SEXP result, names;"])
-        return indent(res, "  ")
+        return indent(res)
 
     def chunk_inconv(self, desc: FunctionDescriptor) -> str:
         """Input conversions. Not only for types with mode 'IN' and
@@ -363,9 +360,7 @@ class RCCodeGenerator(SingleBlockCodeGenerator):
         def do_par(param: ParamSpec) -> str:
             cname = "c_" + param.name
             t = self.get_type_descriptor(param.type)
-            inconv = t.get_input_conversion_template_for(param.mode)
-            if inconv:
-                inconv = indent(inconv, "  ")
+            inconv = indent(t.get_input_conversion_template_for(param.mode))
             for i, dep in enumerate(param.dependencies):
                 inconv = inconv.replace("%C" + str(i + 1) + "%", "c_" + dep)
             return inconv.replace("%C%", cname).replace("%I%", param.name)
@@ -429,9 +424,7 @@ class RCCodeGenerator(SingleBlockCodeGenerator):
         def do_par(param: ParamSpec) -> str:
             cname = f"c_{param.name}"
             t = self.get_type_descriptor(param.type)
-            outconv = t.get_output_conversion_template_for(param.mode)
-            if outconv:
-                outconv = indent(outconv, "  ")
+            outconv = indent(t.get_output_conversion_template_for(param.mode))
             for i, dep in enumerate(param.dependencies):
                 outconv = outconv.replace("%C" + str(i + 1) + "%", "c_" + dep)
 
@@ -444,9 +437,7 @@ class RCCodeGenerator(SingleBlockCodeGenerator):
         if not retpars:
             # return the return value of the function
             rt = self.get_type_descriptor(spec.return_type)
-            retconv = rt.get_output_conversion_template_for(ParamMode.OUT)
-            if retconv:
-                retconv = indent(retconv, "  ")
+            retconv = indent(rt.get_output_conversion_template_for(ParamMode.OUT))
             retconv = retconv.replace("%C%", "c_result").replace("%I%", "result")
             ret = "\n".join(outconv) + "\n" + retconv
         elif len(retpars) == 1:
