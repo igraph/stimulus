@@ -77,11 +77,50 @@ class FunctionDescriptor(Mapping[str, Any]):
         """
         return flag.lower() in self.flags
 
+    @property
+    def has_output_parameter(self) -> bool:
+        """Returns whether the function has at least one parameter that is
+        designated as an output or in-out parameter.
+        """
+        return any(param.is_output for param in self.parameters.values())
+
+    @property
+    def has_primary_output_parameter(self) -> bool:
+        """Returns whether the function has at least one parameter that is
+        explicitly marked as being a primary output or in-out parameter.
+        """
+        return any(param.is_primary for param in self.iter_output_parameters())
+
+    @property
+    def has_non_primary_output_parameter(self) -> bool:
+        """Returns whether the function has at least one parameter that is
+        explicitly marked as being a primary output or in-out parameter.
+        """
+        return any(not param.is_primary for param in self.iter_output_parameters())
+
+    def iter_input_parameters(self) -> Iterable[ParamSpec]:
+        """Iterates over the input and in-out parameters of this function in the
+        order they were defined.
+        """
+        return (param for param in self.parameters.values() if param.is_input)
+
     def iter_parameters(self) -> Iterable[ParamSpec]:
         """Iterates over the parameters of this function in the order they
         were defined.
         """
         return self.parameters.values()
+
+    def iter_output_parameters(self) -> Iterable[ParamSpec]:
+        """Iterates over the output and in-out parameters of this function in the
+        order they were defined.
+        """
+        return (param for param in self.parameters.values() if param.is_output)
+
+    def iter_primary_output_parameters(self) -> Iterable[ParamSpec]:
+        """Iterates over the primary output and in-out parameters of this function in the
+        order they were defined.
+        """
+        return (param for param in self.iter_output_parameters() if param.is_primary)
 
     def update_from(self, obj: Dict[str, str]) -> None:
         """Updates the function descriptor from an object typically parsed from

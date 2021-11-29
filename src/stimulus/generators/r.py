@@ -5,6 +5,7 @@ TODO: free memory when CTRL+C pressed, even on Windows
 
 import re
 
+from shlex import quote
 from typing import Iterable, IO, Optional, Tuple
 
 from stimulus.model import ParamMode, ParamSpec
@@ -46,7 +47,17 @@ class RRCodeGenerator(SingleBlockCodeGenerator):
         ## check whether they have a default value. If yes then we
         ## check if the default value is given in the type file. If
         ## yes then we use the value given there, otherwise the
-        ## default value is ignored silently. (Not very nice.)
+        ## default value is used as is.
+
+        ## Finally, if the function designates one or more of its output
+        ## parameters as primary parameters, and there is at least one
+        ## non-primary output parameter, the function needs a "details"
+        ## parameter as well that lets the user specify whether the
+        ## non-primary parameters are needed.
+
+        needs_details_arg = (
+            spec.has_primary_output_parameter and spec.has_non_primary_output_parameter
+        )
 
         out.write(name)
         out.write(" <- function(")
@@ -80,12 +91,20 @@ class RRCodeGenerator(SingleBlockCodeGenerator):
 
             return header
 
-        head = [
-            handle_input_argument(param)
-            for param in spec.iter_parameters()
-            if param.is_input
-        ]
+        head = [handle_input_argument(param) for param in spec.iter_input_parameters()]
         head = [h for h in head if h != ""]
+        if needs_details_arg:
+            if "details" in head:
+                # We already have another parameter named "details" so we
+                # pretend that we don't have primary output parameters
+                self.log.warn(
+                    f"Primary parameters declared for function {function}, which already "
+                    f"has an argument named 'details'; not adding another one."
+                )
+                needs_details_arg = False
+        if needs_details_arg:
+            head.append("details=FALSE")
+
         out.write(", ".join(head))
         out.write(") {\n")
 
@@ -134,13 +153,12 @@ class RRCodeGenerator(SingleBlockCodeGenerator):
         out.write("  res <- .Call(C_R_" + function + ", ")
 
         parts = []
-        for param in spec.iter_parameters():
-            if param.is_input:
-                type = self.get_type_descriptor(param.type)
-                name = param.name.replace("_", ".")
-                call = type.get("CALL", name)
-                if call:
-                    parts.append(call.replace("%I%", name))
+        for param in spec.iter_input_parameters():
+            type = self.get_type_descriptor(param.type)
+            name = param.name.replace("_", ".")
+            call = type.get("CALL", name)
+            if call:
+                parts.append(call.replace("%I%", name))
 
         out.write(", ".join(parts))
         out.write(")\n")
@@ -169,7 +187,7 @@ class RRCodeGenerator(SingleBlockCodeGenerator):
 
             return re.sub("%I[0-9]+%", "", outconv)
 
-        retpars = [param.name for param in spec.iter_parameters() if param.is_output]
+        retpars = [param.name for param in spec.iter_output_parameters()]
 
         if len(retpars) <= 1:
             outconv = [
@@ -189,14 +207,32 @@ class RRCodeGenerator(SingleBlockCodeGenerator):
             retconv = indent(rt.get_output_conversion_template_for(ParamMode.OUT))
             retconv = retconv.replace("%I%", "res")
             # TODO: %I1% etc, is not handled here!
-            ret = "\n".join(outconv) + "\n" + retconv + "\n"
+            outconv.append("")
+            outconv.append(retconv)
         elif len(retpars) == 1:
             # returning a single output value
-            ret = "\n".join(outconv) + "\n"
+            pass
         else:
             # returning a list of output values
-            ret = "\n".join(outconv) + "\n"
-        out.write(ret)
+            if needs_details_arg:
+                # user had the option to switch between the primary or all the
+                # output arguments. If we only have a single primary argument,
+                # simply return that; otherwise pick the relevant ones from the
+                # result list
+                pick_details = ["if (!details) {"]
+                primary_params = list(spec.iter_primary_output_parameters())
+                if len(primary_params) == 1:
+                    primary_param = primary_params[0]
+                    pick_details.append(f"  res <- res${primary_param.name}")
+                else:
+                    names = ", ".join(quote(param.name) for param in primary_params)
+                    pick_details.append(f"  res <- res[c({names})]")
+                pick_details.append("}")
+                outconv.extend(indent(line) for line in pick_details)
+            else:
+                # just use the output arguments as they are
+                pass
+        out.write("\n".join(outconv) + "\n")
 
         ## Some graph attributes to add
         if "R" not in spec:
@@ -312,7 +348,7 @@ class RCCodeGenerator(SingleBlockCodeGenerator):
             else:
                 return spec.name
 
-        inout = [do_par(spec) for spec in desc.iter_parameters() if spec.is_input]
+        inout = [do_par(spec) for spec in desc.iter_input_parameters()]
         inout = ["SEXP " + n for n in inout if n != ""]
         return "SEXP R_" + desc.name + "(" + ", ".join(inout) + ")"
 
@@ -338,7 +374,7 @@ class RCCodeGenerator(SingleBlockCodeGenerator):
             if spec.mode is ParamMode.OUT
         ]
 
-        retpars = [spec.name for spec in desc.iter_parameters() if spec.is_output]
+        retpars = [spec.name for spec in desc.iter_output_parameters()]
 
         return_type_desc = self.get_type_descriptor(desc.return_type)
         retdecl = return_type_desc.declare_c_variable("c_result") if not retpars else ""
@@ -390,11 +426,11 @@ class RCCodeGenerator(SingleBlockCodeGenerator):
                 call = call.replace("%C%", f"c_{param.name}").replace("%I%", param.name)
                 calls.append(call)
 
-        retpars = [param.name for param in desc.iter_parameters() if param.is_output]
         calls = ", ".join(calls)
         res = f"  {desc.name}({calls});\n"
-        if not retpars:
+        if not desc.has_output_parameter:
             res = f"  c_result={res}"
+
         return res
 
     def chunk_outconv(self, spec: FunctionDescriptor) -> str:
@@ -433,7 +469,7 @@ class RCCodeGenerator(SingleBlockCodeGenerator):
         outconv = [do_par(param) for param in spec.iter_parameters()]
         outconv = [o for o in outconv if o != ""]
 
-        retpars = [param for param in spec.iter_parameters() if param.is_output]
+        retpars = [param for param in spec.iter_output_parameters()]
         if not retpars:
             # return the return value of the function
             rt = self.get_type_descriptor(spec.return_type)

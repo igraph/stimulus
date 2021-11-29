@@ -45,6 +45,17 @@ class ParamSpec:
     by the type definition files.
     """
 
+    is_primary: bool = False
+    """Whether the parameter is a primary parameter.
+
+    This property has no semantic meaning for strictly input parameters. For
+    in-out and output parameters, one or more parameters may be designated as
+    the primary output(s) of the function. Higher level interfaces may use this
+    to generate a "simplified" and a "complex" wrapper for the function, or
+    may add an additional switch to the generated function that specifies
+    whether the user wants the primary return value(s) only or all of them.
+    """
+
     dependencies: List[str] = field(default_factory=list)
     """List of other parameters that the code generators will need to generate
     code for the in- and out-conversions of this parameter.
@@ -61,7 +72,15 @@ class ParamSpec:
         """Constructs a ParamSpec object from its string representation in a
         ``.def`` or ``.yaml`` file.
         """
-        parts = value.strip().split(" ", 1)
+        value = value.strip()
+
+        if value.startswith("PRIMARY"):
+            primary = True
+            value = value[len("PRIMARY") :].strip()
+        else:
+            primary = False
+
+        parts = value.split(" ", 1)
         if parts[0] not in ("OUT", "IN", "INOUT"):
             parts = ["IN", parts[0]] + parts[1].split(" ", 1)
         else:
@@ -75,6 +94,7 @@ class ParamSpec:
             mode=ParamMode(mode.lower()),
             type=str(type),
             default=rest[0] if rest else None,
+            is_primary=primary,
         )
 
     def add_dependency(self, name: str) -> None:
