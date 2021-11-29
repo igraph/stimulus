@@ -12,6 +12,14 @@ class ParamMode(Enum):
     OUT = "out"
     INOUT = "inout"
 
+    @classmethod
+    def is_input(cls, value: "ParamMode") -> bool:
+        return value is cls.IN or value is cls.INOUT
+
+    @classmethod
+    def is_output(cls, value: "ParamMode") -> bool:
+        return value is cls.OUT or value is cls.INOUT
+
 
 @dataclass
 class ParamSpec:

@@ -100,16 +100,10 @@ class RRCodeGenerator(SingleBlockCodeGenerator):
         def handle_argument_check(param: ParamSpec) -> str:
             tname = param.type
             t = self.get_type_descriptor(tname)
-            mode = param.mode_str
-            if param.is_input and "INCONV" in t:
-                if mode in t["INCONV"]:
-                    res = indent(t["INCONV"][mode], "  ")
-                else:
-                    res = indent(t["INCONV"], "  ")
-            else:
-                res = ""
+            res = t.get_input_conversion_template_for(param.mode)
+            if res:
+                res = indent(res, "  ")
             res = res.replace("%I%", param.name.replace("_", "."))
-
             for i, dep in enumerate(param.dependencies):
                 res = res.replace("%I" + str(i + 1) + "%", dep)
 
@@ -162,13 +156,10 @@ class RRCodeGenerator(SingleBlockCodeGenerator):
 
             tname = param.type
             t = self.get_type_descriptor(tname)
-            mode = param.mode_str
-            if "OUTCONV" in t and mode in t["OUTCONV"]:
-                outconv = indent(t["OUTCONV"][mode], "  ")
-            else:
-                outconv = ""
+            outconv = t.get_output_conversion_template_for(param.mode)
+            if outconv:
+                outconv = indent(outconv, "  ")
             outconv = outconv.replace("%I%", iprefix + realname)
-
             for i, dep in enumerate(param.dependencies):
                 outconv = outconv.replace("%I" + str(i + 1) + "%", dep)
 
@@ -196,10 +187,9 @@ class RRCodeGenerator(SingleBlockCodeGenerator):
         if len(retpars) == 0:
             # returning the return value of the function
             rt = self.get_type_descriptor(spec.return_type)
-            if "OUTCONV" in rt:
-                retconv = indent(rt["OUTCONV"]["OUT"], "  ")
-            else:
-                retconv = ""
+            retconv = rt.get_output_conversion_template_for(ParamMode.OUT)
+            if retconv:
+                retconv = indent(retconv, "  ")
             retconv = retconv.replace("%I%", "res")
             # TODO: %I1% etc, is not handled here!
             ret = "\n".join(outconv) + "\n" + retconv + "\n"
@@ -373,15 +363,11 @@ class RCCodeGenerator(SingleBlockCodeGenerator):
         def do_par(param: ParamSpec) -> str:
             cname = "c_" + param.name
             t = self.get_type_descriptor(param.type)
-            mode = param.mode_str
-            if "INCONV" in t and mode in t["INCONV"]:
-                inconv = indent(t["INCONV"][mode], "  ")
-            else:
-                inconv = ""
-
+            inconv = t.get_input_conversion_template_for(param.mode)
+            if inconv:
+                inconv = indent(inconv, "  ")
             for i, dep in enumerate(param.dependencies):
                 inconv = inconv.replace("%C" + str(i + 1) + "%", "c_" + dep)
-
             return inconv.replace("%C%", cname).replace("%I%", param.name)
 
         inconv = [do_par(param) for param in desc.iter_parameters()]
@@ -443,12 +429,9 @@ class RCCodeGenerator(SingleBlockCodeGenerator):
         def do_par(param: ParamSpec) -> str:
             cname = f"c_{param.name}"
             t = self.get_type_descriptor(param.type)
-            mode = param.mode_str
-            if "OUTCONV" in t and mode in t["OUTCONV"]:
-                outconv = indent(t["OUTCONV"][mode], "  ")
-            else:
-                outconv = ""
-
+            outconv = t.get_output_conversion_template_for(param.mode)
+            if outconv:
+                outconv = indent(outconv, "  ")
             for i, dep in enumerate(param.dependencies):
                 outconv = outconv.replace("%C" + str(i + 1) + "%", "c_" + dep)
 
@@ -461,10 +444,9 @@ class RCCodeGenerator(SingleBlockCodeGenerator):
         if not retpars:
             # return the return value of the function
             rt = self.get_type_descriptor(spec.return_type)
-            if "OUTCONV" in rt:
-                retconv = indent(rt["OUTCONV"]["OUT"], "  ")
-            else:
-                retconv = ""
+            retconv = rt.get_output_conversion_template_for(ParamMode.OUT)
+            if retconv:
+                retconv = indent(retconv, "  ")
             retconv = retconv.replace("%C%", "c_result").replace("%I%", "result")
             ret = "\n".join(outconv) + "\n" + retconv
         elif len(retpars) == 1:

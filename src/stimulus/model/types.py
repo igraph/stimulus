@@ -61,6 +61,22 @@ class TypeDescriptor(Mapping[str, Any]):
 
         return c_decl.replace(type_token, c_type or "").replace(name_token, name)
 
+    def get_input_conversion_template_for(
+        self, mode: ParamMode, *, default: str = ""
+    ) -> str:
+        """Returns a template string that specifies how parameters of this type
+        should be converted when it is used as an input parameter.
+        """
+        return self._get_conversion_template("INCONV", mode, default=default)
+
+    def get_output_conversion_template_for(
+        self, mode: ParamMode, *, default: str = ""
+    ) -> str:
+        """Returns a template string that specifies how parameters of this type
+        should be converted when it is used as an output parameter.
+        """
+        return self._get_conversion_template("OUTCONV", mode, default=default)
+
     def translate_default_value(self, value: Any) -> str:
         """Translates the default value of a parameter having this type to
         a string in the format that should be used in the output file.
@@ -80,3 +96,19 @@ class TypeDescriptor(Mapping[str, Any]):
           - Any key in `obj` is merged with the existing key-value store.
         """
         always_merger.merge(self._obj, obj)
+
+    def _get_conversion_template(
+        self, key: str, mode: ParamMode, *, default: str = ""
+    ) -> str:
+        if key in self:
+            inconv = self[key]
+            if isinstance(inconv, str):
+                return inconv
+            elif isinstance(inconv, dict):
+                return inconv.get(mode.value.upper(), default)
+            else:
+                raise TypeError(
+                    f"{key} should be a string or a dict for type {self.name}"
+                )
+        else:
+            return default

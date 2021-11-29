@@ -294,12 +294,9 @@ class JavaCCodeGenerator(JavaCodeGenerator):
         def do_par(param: ParamSpec):
             cname = "c_" + param.name
             t = self.get_type_descriptor(param.type)
-            mode = param.mode_str
-            if "INCONV" in t and mode in t["INCONV"]:
-                inconv = "  " + t["INCONV"][mode]
-            else:
-                inconv = ""
-
+            inconv = t.get_input_conversion_template_for(param.mode)
+            if inconv:
+                inconv = indent(inconv, "  ")
             for i, dep in enumerate(param.dependencies):
                 inconv = inconv.replace("%C" + str(i + 1) + "%", "c_" + dep)
 
@@ -365,11 +362,9 @@ class JavaCCodeGenerator(JavaCodeGenerator):
             cname = "c_" + pname
             jname = "j_" + pname
             t = self.get_type_descriptor(params[pname].type)
-            mode = params[pname].mode_str
-            if "OUTCONV" in t and mode in t["OUTCONV"]:
-                outconv = "  " + t["OUTCONV"][mode]
-            else:
-                outconv = ""
+            outconv = t.get_output_conversion_template_for(params[pname].mode)
+            if outconv:
+                outconv = indent(outconv, "  ")
             return outconv.replace("%C%", cname).replace("%I%", jname)
 
         outconv = [do_par(n) for n in params]
@@ -379,10 +374,9 @@ class JavaCCodeGenerator(JavaCodeGenerator):
         if len(retpars) == 0:
             # return the return value of the function
             rt = self.get_type_descriptor(spec.return_type)
-            if "OUTCONV" in rt:
-                retconv = "  " + rt["OUTCONV"]["OUT"]
-            else:
-                retconv = ""
+            retconv = rt.get_output_conversion_template_for(ParamMode.OUT)
+            if retconv:
+                retconv = indent(retconv, "  ")
             retconv = retconv.replace("%C%", "c__result").replace("%I%", "result")
             if len(retconv) > 0:
                 outconv.append(retconv)
