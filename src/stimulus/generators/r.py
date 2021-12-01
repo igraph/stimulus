@@ -55,6 +55,11 @@ class RRCodeGenerator(SingleBlockCodeGenerator):
         ## parameter as well that lets the user specify whether the
         ## non-primary parameters are needed.
 
+        ## TODO(ntamas): if the function designates one or more of its
+        ## arguments as "primary" and the user is not interested in the
+        ## details, do not generate conversion code for the non-primary
+        ## arguments if they are optional
+
         needs_details_arg = (
             spec.has_primary_output_parameter and spec.has_non_primary_output_parameter
         )

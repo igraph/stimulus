@@ -45,6 +45,17 @@ class ParamSpec:
     by the type definition files.
     """
 
+    is_optional: bool = False
+    """Whether the parameter is an optional parameter.
+
+    igraph's core is implemented in C, which does not really have optional
+    parameters. However, a typical pattern is that certain values are used to
+    denote that the caller of the function is not providing a value for the
+    parameter (for input parameters) or is not interested in the value of the
+    parameter after calling the function (for output parameters). This
+    property can be used to mark such a parameter.
+    """
+
     is_primary: bool = False
     """Whether the parameter is a primary parameter.
 
@@ -74,11 +85,17 @@ class ParamSpec:
         """
         value = value.strip()
 
-        if value.startswith("PRIMARY"):
-            primary = True
-            value = value[len("PRIMARY") :].strip()
-        else:
-            primary = False
+        flags = ("PRIMARY", "OPTIONAL")
+        flags_present = set()
+        while True:
+            for flag in flags:
+                if value.startswith(flag):
+                    flags_present.add(flag)
+                    value = value[len(flag) :].strip()
+                    break
+            else:
+                # No flag was stripped in this iteration, break out of the loop
+                break
 
         parts = value.split(" ", 1)
         if parts[0] not in ("OUT", "IN", "INOUT"):
@@ -89,12 +106,14 @@ class ParamSpec:
             parts = parts[:2] + parts[2].split("=", 1)
 
         mode, type, name, *rest = [part.strip() for part in parts]
+
         return ParamSpec(
             name=str(name),
             mode=ParamMode(mode.lower()),
             type=str(type),
             default=rest[0] if rest else None,
-            is_primary=primary,
+            is_primary="PRIMARY" in flags_present,
+            is_optional="OPTIONAL" in flags_present,
         )
 
     def add_dependency(self, name: str) -> None:
