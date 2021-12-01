@@ -114,11 +114,12 @@ class RRCodeGenerator(SingleBlockCodeGenerator):
         out.write(") {\n")
 
         ## Argument checks, INCONV
+        ##
         ## We take 'IN' and 'INOUT' mode arguments and if they have an
         ## INCONV field then we use that. This is typically for
         ## argument checks, like we check here that the argument
         ## supplied for a graph is indeed an igraph graph object. We
-        ## also covert numeric vectors to 'double' here.
+        ## also convert numeric vectors to 'double' here.
 
         ## The INCONV fields are simply concatenated by newline
         ## characters.
@@ -128,6 +129,16 @@ class RRCodeGenerator(SingleBlockCodeGenerator):
             tname = param.type
             t = self.get_type_descriptor(tname)
             res = indent(t.get_input_conversion_template_for(param.mode))
+
+            # Handle optional input arguments; wrap the conversion in a null
+            # check. Note that this is performed only for input arguments. For
+            # arguments that are strictly used as output arguments, the INCONV
+            # is meant for setting up a default value so it is performed
+            # unconditionally
+            if param.is_input and param.is_optional:
+                res = indent("\n".join(["if (!is.null(%I%)) {", indent(res), "}"]))
+
+            # Replace template placeholders
             res = res.replace("%I%", param.name.replace("_", "."))
             for i, dep in enumerate(param.dependencies):
                 res = res.replace("%I" + str(i + 1) + "%", dep)
