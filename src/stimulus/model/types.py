@@ -16,6 +16,7 @@ class TypeDescriptor(Mapping[str, Any]):
     """Dataclass that describes a single type that is used in a code generator."""
 
     name: str
+    #: Name of the type
 
     _obj: Dict[str, str] = field(default_factory=dict)
 

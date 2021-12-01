@@ -43,9 +43,10 @@ def create_argument_parser() -> ArgumentParser:
     parser.add_argument(
         "-t",
         "--types",
+        action="append",
         metavar="FILE",
         help="use the given type definition FILE",
-        nargs="*",
+        default=[],
     )
 
     parser.add_argument(
