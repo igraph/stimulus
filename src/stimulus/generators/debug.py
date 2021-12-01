@@ -10,11 +10,15 @@ Typically, they are used from the command line as follows::
 
 from collections import Counter
 from functools import partial
-from typing import IO
+from textwrap import dedent
+from typing import IO, List, Sequence
 
 from .base import SingleBlockCodeGenerator
+from .utils import create_indentation_function
 
 __all__ = ("ListTypesCodeGenerator",)
+
+indent = create_indentation_function("    ")
 
 
 class ListTypesCodeGenerator(SingleBlockCodeGenerator):
@@ -36,3 +40,52 @@ class ListTypesCodeGenerator(SingleBlockCodeGenerator):
         write = partial(print, file=output)
         for type, count in sorted(self.collected_types.items()):
             write(type, count)
+
+
+class FunctionSpecificationValidator(SingleBlockCodeGenerator):
+    """Dummy code generator that simply prints C functions that call the
+    original C functions from igraph. This file can then be compiled with a
+    C++ compiler to validate whether the function specifications are correct
+    when linked with igraph.
+    """
+
+    functions: List[str]
+    """List to collect the names of all the functions that were matched by
+    the generator.
+    """
+
+    def __init__(self, *args, **kwds):
+        super().__init__(*args, **kwds)
+        self.functions = []
+
+    def generate_preamble(self, inputs: Sequence[str], output: IO[str]) -> None:
+        write = partial(print, file=output)
+
+        write("#include <igraph.h>\n")
+
+    def generate_function(self, name: str, output: IO[str]) -> None:
+        write = partial(print, file=output)
+
+        args = ", ".join([])
+        write(f"void generated_{name}({args});")
+
+        self.functions.append(name)
+
+    def generate_epilogue(self, inputs: Sequence[str], output: IO[str]) -> None:
+        write = partial(print, file=output)
+
+        checks = "\n".join(
+            dedent(
+                f"""\
+                static_assert(
+                    std::is_same<
+                        decltype({name}),
+                        decltype(generated_{name})
+                    >::value,
+                    "{name} prototype mismatch"
+                );"""
+            )
+            for name in self.functions
+        )
+        checks = indent(checks)
+        write(f'void main() {{\n{checks}\n\n    printf("Everything OK!");\n}}')
