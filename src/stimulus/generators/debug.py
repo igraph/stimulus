@@ -14,10 +14,10 @@ from typing import IO
 
 from .base import SingleBlockCodeGenerator
 
-__all__ = ("DebugListTypesCodeGenerator",)
+__all__ = ("ListTypesCodeGenerator",)
 
 
-class DebugListTypesCodeGenerator(SingleBlockCodeGenerator):
+class ListTypesCodeGenerator(SingleBlockCodeGenerator):
     """Debugging aid that lists all the types that appear in the function
     definitions.
     """

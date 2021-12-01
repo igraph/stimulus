@@ -3,34 +3,12 @@ import os
 import sys
 
 from argparse import ArgumentParser
-from typing import Callable
 
-from .generators.base import CodeGenerator
-from .generators.debug import DebugListTypesCodeGenerator  # noqa
-from .generators.java import JavaCCodeGenerator, JavaJavaCodeGenerator  # noqa
-from .generators.r import RCCodeGenerator, RInitCodeGenerator, RRCodeGenerator  # noqa
-from .generators.shell import ShellCodeGenerator  # noqa
+from .generators import (
+    get_code_generator_factory_for_language,
+    is_valid_language,
+)
 from .version import __version__
-
-
-def get_code_generator_class_for_language(
-    lang: str,
-) -> Callable[[], CodeGenerator]:
-    """Returns the class or factory function that is responsible for generating
-    code in the given language.
-    """
-    return globals()[f"{lang}CodeGenerator"]
-
-
-def has_code_generator_class_for_language(lang: str) -> bool:
-    """Returns whether there is a class or factory function that is responsible
-    for generating code in the given language.
-    """
-    try:
-        get_code_generator_class_for_language(lang)
-        return True
-    except KeyError:
-        return False
 
 
 def create_argument_parser() -> ArgumentParser:
@@ -113,7 +91,7 @@ def main():
             parser.error("Number of languages and output files must match")
 
     for language in languages:
-        if not has_code_generator_class_for_language(language):
+        if not is_valid_language(language):
             parser.error(f"Unknown language: {language}")
 
     for path in type_files:
@@ -133,7 +111,7 @@ def main():
 
     # OK, do the trick:
     for language, output in zip(languages, outputs):
-        factory = get_code_generator_class_for_language(language)
+        factory = get_code_generator_factory_for_language(language)
 
         generator = factory()
         generator.use_logger(log)
