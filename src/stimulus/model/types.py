@@ -50,9 +50,7 @@ class TypeDescriptor(Mapping[str, Any]):
         if isinstance(c_decl, dict):
             c_decl = c_decl.get(mode_str)
 
-        c_type = self._obj.get("CTYPE")
-        if isinstance(c_type, dict):
-            c_type = c_type.get(mode_str)
+        c_type = self.get_c_type(mode)
 
         if c_decl is None:
             c_decl = f"{type_token} {name_token};"
@@ -61,6 +59,24 @@ class TypeDescriptor(Mapping[str, Any]):
             c_decl = ""
 
         return c_decl.replace(type_token, c_type or "").replace(name_token, name)
+
+    def get_c_type(self, mode: ParamMode = ParamMode.OUT) -> str:
+        """Returns a string that contains the C type corresponding to this
+        abstract type.
+        """
+        mode_str = str(mode.value).upper()
+        c_type = self._obj.get("CTYPE")
+        if isinstance(c_type, dict):
+            try:
+                return c_type[mode_str]  # type: ignore
+            except KeyError:
+                raise ValueError(
+                    f"Stimulus type {self.name} has no corresponding C type in mode {mode_str}"
+                )
+        elif isinstance(c_type, str):
+            return c_type
+        else:
+            raise ValueError("CTYPE declaration must be a string or a mapping")
 
     def get_input_conversion_template_for(
         self, mode: ParamMode, *, default: str = ""

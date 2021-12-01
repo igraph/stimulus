@@ -17,7 +17,7 @@ from typing import (
     Tuple,
 )
 
-from stimulus.errors import StimulusError
+from stimulus.errors import CodeGenerationError, NoSuchTypeError
 from stimulus.legacy.parser import Parser as LegacyParser
 from stimulus.model import FunctionDescriptor, TypeDescriptor
 
@@ -165,7 +165,7 @@ class CodeGeneratorBase(CodeGenerator):
                 elif errors == "error":
                     self.log.error(message)
                 else:
-                    raise StimulusError(message)
+                    raise NoSuchTypeError(type_name, message=message)
 
         return ok
 
@@ -203,12 +203,15 @@ class CodeGeneratorBase(CodeGenerator):
         return descriptor
 
     def get_type_descriptor(self, name: str) -> TypeDescriptor:
-        return self._type_descriptors[name]
+        try:
+            return self._type_descriptors[name]
+        except KeyError:
+            raise NoSuchTypeError(name) from None
 
     def get_or_create_type_descriptor(self, name: str) -> TypeDescriptor:
         try:
             descriptor = self.get_type_descriptor(name)
-        except KeyError:
+        except NoSuchTypeError:
             descriptor = self._type_descriptors[name] = TypeDescriptor(name)
         return descriptor
 
@@ -326,7 +329,7 @@ class BlockBasedCodeGenerator(CodeGeneratorBase):
         """
         handler = getattr(self, f"generate_{name}_block", None)
         if handler is None:
-            raise StimulusError(f"Unhandled block in input file: {name}")
+            raise CodeGenerationError(f"Unhandled block in input file: {name}")
 
         buf = StringIO()
         handler(buf)

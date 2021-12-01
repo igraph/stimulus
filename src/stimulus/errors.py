@@ -1,6 +1,6 @@
 from typing import Optional
 
-__all__ = ("StimulusError",)
+__all__ = ("StimulusError", "ParseError", "CodeGenerationError", "NoSuchTypeError")
 
 
 class StimulusError(RuntimeError):
@@ -26,3 +26,22 @@ class ParseError(StimulusError):
             f"{message} in line {lineno}" if lineno is not None else message
         )
         self.lineno = lineno
+
+
+class CodeGenerationError(StimulusError):
+    """Base class for errors thrown while generating code."""
+
+    pass
+
+
+class NoSuchTypeError(CodeGenerationError):
+    """Error thrown when the code generator attempts to look up a type by
+    name and there is no such type in the registry.
+    """
+
+    type: str
+    #: Name of the type for which the lookup failed
+
+    def __init__(self, type: str, *, message: Optional[str] = None):
+        super().__init__(message or f"No such type: {type!r}")
+        self.type = type

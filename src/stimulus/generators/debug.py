@@ -62,12 +62,23 @@ class FunctionSpecificationValidator(SingleBlockCodeGenerator):
         write = partial(print, file=output)
 
         write("#include <igraph.h>\n")
+        write("#include <cstdio>")
+        write("#include <type_traits>\n")
 
     def generate_function(self, name: str, output: IO[str]) -> None:
         write = partial(print, file=output)
 
-        args = ", ".join([])
-        write(f"void generated_{name}({args});")
+        args: List[str] = []
+
+        func_desc = self.get_function_descriptor(name)
+        for param in func_desc.iter_parameters():
+            args.append(param.name)
+
+        return_type_desc = self.get_type_descriptor(func_desc.return_type)
+        return_type = return_type_desc.get_c_type()
+
+        args_str = ", ".join(args)
+        write(f"{return_type} generated_{name}({args_str});")
 
         self.functions.append(name)
 
@@ -88,4 +99,4 @@ class FunctionSpecificationValidator(SingleBlockCodeGenerator):
             for name in self.functions
         )
         checks = indent(checks)
-        write(f'void main() {{\n{checks}\n\n    printf("Everything OK!");\n}}')
+        write(f'\nvoid main() {{\n{checks}\n\n    printf("Everything OK!");\n}}')
