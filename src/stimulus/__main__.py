@@ -6,6 +6,7 @@ from argparse import ArgumentParser
 from typing import Callable
 
 from .generators.base import CodeGenerator
+from .generators.debug import DebugListTypesCodeGenerator  # noqa
 from .generators.java import JavaCCodeGenerator, JavaJavaCodeGenerator  # noqa
 from .generators.r import RCCodeGenerator, RInitCodeGenerator, RRCodeGenerator  # noqa
 from .generators.shell import ShellCodeGenerator  # noqa
@@ -53,6 +54,7 @@ def create_argument_parser() -> ArgumentParser:
         action="append",
         metavar="FILE",
         help="use the given function definition FILE",
+        default=[],
     )
 
     parser.add_argument(
@@ -61,6 +63,7 @@ def create_argument_parser() -> ArgumentParser:
         action="append",
         metavar="LANGUAGE",
         help="generate code in the given LANGUAGE",
+        default=[],
     )
 
     parser.add_argument(
@@ -69,6 +72,7 @@ def create_argument_parser() -> ArgumentParser:
         action="append",
         metavar="FILE",
         help="read input from the given FILE",
+        default=[],
     )
 
     parser.add_argument(
@@ -77,6 +81,7 @@ def create_argument_parser() -> ArgumentParser:
         action="append",
         metavar="FILE",
         help="write output to the given FILE. Use '-' for standard output.",
+        default=[],
     )
 
     return parser
@@ -100,7 +105,11 @@ def main():
     # Note: the lists might be empty, but languages and outputs must
     # have the same length.
     if len(languages) != len(outputs):
-        parser.error("Number of languages and output files must match")
+        if len(languages) == 1 and not len(outputs):
+            # Special case: just write to stdout
+            outputs.append("-")
+        else:
+            parser.error("Number of languages and output files must match")
 
     for language in languages:
         if not has_code_generator_class_for_language(language):
