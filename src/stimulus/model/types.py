@@ -4,19 +4,24 @@ from typing import (
     Any,
     Dict,
     Mapping,
+    Set,
 )
 
-from stimulus.model.parameters import ParamMode
+from .base import DescriptorMixin
+from .parameters import ParamMode
 
 __all__ = ("TypeDescriptor",)
 
 
 @dataclass
-class TypeDescriptor(Mapping[str, Any]):
+class TypeDescriptor(Mapping[str, Any], DescriptorMixin):
     """Dataclass that describes a single type that is used in a code generator."""
 
     name: str
-    #: Name of the type
+    """Name of the type"""
+
+    flags: Set[str] = field(default_factory=set)
+    """The flags associated to the type"""
 
     _obj: Dict[str, str] = field(default_factory=dict)
 
@@ -116,6 +121,17 @@ class TypeDescriptor(Mapping[str, Any]):
         else:
             return default
 
+    def has_flag(self, flag: str) -> bool:
+        """Checks whether the type descriptor has the given flag, in a
+        case-insensitive manner.
+        """
+        return flag.lower() in self.flags
+
+    @property
+    def is_primitive(self) -> bool:
+        """Returns whether the type is a primitive type in the C layer."""
+        return self.has_flag("primitive")
+
     def translate_default_value(self, value: Any) -> str:
         """Translates the default value of a parameter having this type to
         a string in the format that should be used in the output file.
@@ -132,6 +148,15 @@ class TypeDescriptor(Mapping[str, Any]):
 
         The rules are as follows:
 
-          - Any key in `obj` is merged with the existing key-value store.
+        The rules are as follows:
+
+          - The values from the ``FLAGS`` list are merged with the existing
+            flags. ``FLAGS`` may also be a string, in which case it will be
+            split along commas.
+
+          - Any other key in `obj` is merged with the existing key-value store.
         """
         always_merger.merge(self._obj, obj)
+
+        it = self._parse_as_comma_separated_list("FLAGS")
+        self.flags |= set(flag.lower() for flag in it)

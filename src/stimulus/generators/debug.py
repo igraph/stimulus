@@ -13,6 +13,8 @@ from functools import partial
 from textwrap import dedent
 from typing import IO, List, Sequence
 
+from stimulus.errors import NoSuchTypeError
+
 from .base import SingleBlockCodeGenerator
 from .utils import create_indentation_function
 
@@ -72,7 +74,28 @@ class FunctionSpecificationValidator(SingleBlockCodeGenerator):
 
         func_desc = self.get_function_descriptor(name)
         for param in func_desc.iter_parameters():
-            args.append(param.name)
+            # TODO(ntamas): maybe move this logic to the type descriptor into
+            # a declare_c_argument() method?
+            try:
+                param_type_desc = self.get_type_descriptor(param.type)
+                param_type = param_type_desc.get_c_type(param.mode)
+                primitive = param_type_desc.is_primitive
+            except NoSuchTypeError:
+                param_type = "void*"
+                primitive = False
+
+            if primitive:
+                # Primitive types become pointers if they are to be used as
+                # output or in-out arguments
+                if param.is_output:
+                    param_type += "*"
+            else:
+                # Non-primitive types gain a "const" modifier if they are
+                # used as a purely input argument
+                if param.is_input and not param.is_output:
+                    param_type = f"const {param_type}"
+
+            args.append(f"{param_type} {param.name}")
 
         return_type_desc = self.get_type_descriptor(func_desc.return_type)
         return_type = return_type_desc.get_c_type()
@@ -99,4 +122,6 @@ class FunctionSpecificationValidator(SingleBlockCodeGenerator):
             for name in self.functions
         )
         checks = indent(checks)
-        write(f'\nvoid main() {{\n{checks}\n\n    printf("Everything OK!");\n}}')
+        write(
+            f'\nint main() {{\n{checks}\n\n    printf("Everything OK!");\n    return 0;\n}}'
+        )
