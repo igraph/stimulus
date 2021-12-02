@@ -8,6 +8,7 @@ import re
 from shlex import quote
 from typing import Iterable, IO, Optional, Tuple
 
+from stimulus.errors import NoSuchTypeError
 from stimulus.model import ParamMode, ParamSpec
 from stimulus.model.functions import FunctionDescriptor
 
@@ -381,7 +382,10 @@ class RCCodeGenerator(SingleBlockCodeGenerator):
 
         def do_par(spec: ParamSpec) -> str:
             type_desc = self.get_type_descriptor(spec.type)
-            return type_desc.declare_c_variable(f"c_{spec.name}", mode=spec.mode)
+            try:
+                return type_desc.declare_c_variable(f"c_{spec.name}", mode=spec.mode)
+            except NoSuchTypeError:
+                return f"/* {spec.name} has no corresponding C type */"
 
         inout = [do_par(spec) for spec in desc.iter_parameters()]
         out = [
@@ -525,7 +529,7 @@ class RInitCodeGenerator(BlockBasedCodeGenerator):
         desc = self.get_function_descriptor(name)
         in_args, out_args = 0, 0
         for param in desc.iter_parameters():
-            if param.type in ("DEPRECATED", "NULL"):
+            if param.type in ("ARPACKSTORAGE", "DEPRECATED", "EXTRA", "NULL"):
                 continue
             if param.is_input:
                 in_args += 1

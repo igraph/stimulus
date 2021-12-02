@@ -7,6 +7,8 @@ from typing import (
     Set,
 )
 
+from stimulus.errors import NoSuchTypeError
+
 from .base import DescriptorMixin
 from .parameters import ParamMode
 
@@ -68,6 +70,10 @@ class TypeDescriptor(Mapping[str, Any], DescriptorMixin):
     def get_c_type(self, mode: ParamMode = ParamMode.OUT) -> str:
         """Returns a string that contains the C type corresponding to this
         abstract type.
+
+        Raises:
+            NoSuchTypeError: if this type has no corresponding C type in the
+                given mode
         """
         mode_str = str(mode.value).upper()
         c_type = self._obj.get("CTYPE")
@@ -75,13 +81,20 @@ class TypeDescriptor(Mapping[str, Any], DescriptorMixin):
             try:
                 return c_type[mode_str]  # type: ignore
             except KeyError:
-                raise ValueError(
+                raise NoSuchTypeError(
                     f"Stimulus type {self.name} has no corresponding C type in mode {mode_str}"
                 )
         elif isinstance(c_type, str):
             return c_type
+        elif c_type is None:
+            raise NoSuchTypeError(
+                self.name,
+                message=f"Stimulus type {self.name} has no corresponding C type",
+            )
         else:
-            raise ValueError("CTYPE declaration must be a string or a mapping")
+            raise ValueError(
+                f"CTYPE declaration must be a string or a mapping, got {type(c_type)}"
+            )
 
     def get_input_conversion_template_for(
         self, mode: ParamMode, *, default: str = ""
