@@ -30,7 +30,7 @@ class ListTypesCodeGenerator(SingleBlockCodeGenerator):
 
     def __init__(self, *args, **kwds):
         super().__init__(*args, **kwds)
-        self.collected_types: Counter[str] = Counter()
+        self.collected_types = Counter()
 
     def generate_function(self, name: str, output: IO[str]) -> None:
         spec = self.get_function_descriptor(name)
@@ -56,7 +56,7 @@ class FunctionSpecificationValidator(SingleBlockCodeGenerator):
     the generator.
     """
 
-    unknown_types: Counter[str]
+    unknown_types: Counter
     """Dictionary that counts how many times we have seen an unknown type
     so we can figure out which ones need to be prioritized.
     """
