@@ -128,9 +128,9 @@ class TypeDescriptor(Mapping[str, Any], DescriptorMixin):
         return flag.lower() in self.flags
 
     @property
-    def is_primitive(self) -> bool:
+    def is_passed_by_reference(self) -> bool:
         """Returns whether the type is a primitive type in the C layer."""
-        return self.has_flag("primitive")
+        return self.has_flag("by_ref")
 
     def translate_default_value(self, value: Any) -> str:
         """Translates the default value of a parameter having this type to
@@ -145,8 +145,6 @@ class TypeDescriptor(Mapping[str, Any], DescriptorMixin):
     def update_from(self, obj: Dict[str, str]) -> None:
         """Updates the type descriptor from an object typically parsed from
         a specification file.
-
-        The rules are as follows:
 
         The rules are as follows:
 

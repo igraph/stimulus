@@ -56,9 +56,15 @@ class FunctionSpecificationValidator(SingleBlockCodeGenerator):
     the generator.
     """
 
+    unknown_types: Counter[str]
+    """Dictionary that counts how many times we have seen an unknown type
+    so we can figure out which ones need to be prioritized.
+    """
+
     def __init__(self, *args, **kwds):
         super().__init__(*args, **kwds)
         self.functions = []
+        self.unknown_types = Counter()
 
     def generate_preamble(self, inputs: Sequence[str], output: IO[str]) -> None:
         write = partial(print, file=output)
@@ -79,21 +85,25 @@ class FunctionSpecificationValidator(SingleBlockCodeGenerator):
             try:
                 param_type_desc = self.get_type_descriptor(param.type)
                 param_type = param_type_desc.get_c_type(param.mode)
-                primitive = param_type_desc.is_primitive
+                by_ref = param_type_desc.is_passed_by_reference
             except NoSuchTypeError:
-                param_type = "void*"
-                primitive = False
+                param_type = "void"
+                by_ref = True
+                self.unknown_types[param.type] += 1
 
-            if primitive:
-                # Primitive types become pointers if they are to be used as
-                # output or in-out arguments
+            if by_ref:
+                # Argument is always passed by reference, but it gains a
+                # "const" modifier if it is used as a purely input argument --
+                # except when it is "void*" because everyone does all sorts of
+                # nasty things with void pointers
+                param_type += "*"
+                if param.is_input and not param.is_output and param_type != "void*":
+                    param_type = f"const {param_type}"
+            else:
+                # Argument is passed by value by default, but it needs to
+                # become a pointer if it is to be used in output or in-out mode
                 if param.is_output:
                     param_type += "*"
-            else:
-                # Non-primitive types gain a "const" modifier if they are
-                # used as a purely input argument
-                if param.is_input and not param.is_output:
-                    param_type = f"const {param_type}"
 
             args.append(f"{param_type} {param.name}")
 
@@ -125,3 +135,8 @@ class FunctionSpecificationValidator(SingleBlockCodeGenerator):
         write(
             f'\nint main() {{\n{checks}\n\n    printf("Everything OK!");\n    return 0;\n}}'
         )
+
+        if self.unknown_types:
+            self.log.info("Most common types that were not known to the type system:")
+            for type, count in self.unknown_types.most_common(10):
+                self.log.info(f"  {type} ({count})")
