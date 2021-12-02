@@ -132,9 +132,29 @@ class FunctionSpecificationValidator(SingleBlockCodeGenerator):
             for name in self.functions
         )
         checks = indent(checks)
-        write(
-            f'\nint main() {{\n{checks}\n\n    printf("Everything OK!");\n    return 0;\n}}'
-        )
+        write()
+        write("int main() {")
+
+        # Turn off the GCC warning about deprecated declarations because we
+        # also want to check those
+        write()
+        write("#if defined(__GNUC__)")
+        write("#  pragma GCC diagnostic push")
+        write('#  pragma GCC diagnostic ignored "-Wdeprecated-declarations"')
+        write("#endif")
+        write()
+
+        write(checks)
+
+        write()
+        write("#if defined(__GNUC__)")
+        write("#  pragma GCC diagnostic pop")
+        write("#endif")
+
+        write()
+        write('    printf("Everything OK!");')
+        write("    return 0;")
+        write("}")
 
         if self.unknown_types:
             self.log.info("Most common types that were not known to the type system:")
