@@ -73,7 +73,7 @@ class RRCodeGenerator(SingleBlockCodeGenerator):
             type_desc = self.get_type_descriptor(tname)
             header = param.name.replace("_", ".")
             if "HEADER" in type_desc:
-                header = type_desc["HEADER"]
+                header = type_desc["HEADER"] or ""
             if header:
                 header = header.replace("%I%", param.name.replace("_", "."))
             else:
@@ -536,12 +536,20 @@ class RInitCodeGenerator(BlockBasedCodeGenerator):
         desc = self.get_function_descriptor(name)
         in_args, out_args = 0, 0
         for param in desc.iter_parameters():
-            if param.type in ("ARPACKSTORAGE", "DEPRECATED", "EXTRA", "NULL"):
-                continue
-            if param.is_input:
-                in_args += 1
-            if param.is_output:
-                out_args += 1
+            try:
+                type_spec = self.get_type_descriptor(param.type)
+            except NoSuchTypeError:
+                # param should probably be included in the function header
+                type_spec = None
+            if (
+                type_spec is None
+                or "HEADER" not in type_spec
+                or type_spec.get("HEADER") is not None
+            ):
+                if param.is_input:
+                    in_args += 1
+                if param.is_output:
+                    out_args += 1
         return in_args, out_args
 
     def generate_declarations_block(self, out: IO[str]) -> None:
