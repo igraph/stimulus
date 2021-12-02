@@ -44,6 +44,11 @@ class FunctionDescriptor(Mapping[str, Any], DescriptorMixin):
         return len(self._obj)
 
     @property
+    def is_deprecated(self) -> bool:
+        """Returns whether the function is deprecated."""
+        return self.has_flag("deprecated")
+
+    @property
     def is_internal(self) -> bool:
         """Returns whether the function is internal (i.e. should not be exported
         in the public namespace of the generated higher-level interface.
