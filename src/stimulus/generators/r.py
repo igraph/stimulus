@@ -131,14 +131,6 @@ class RRCodeGenerator(SingleBlockCodeGenerator):
             t = self.get_type_descriptor(tname)
             res = indent(t.get_input_conversion_template_for(param.mode))
 
-            # Handle optional input arguments; wrap the conversion in a null
-            # check. Note that this is performed only for input arguments. For
-            # arguments that are strictly used as output arguments, the INCONV
-            # is meant for setting up a default value so it is performed
-            # unconditionally
-            if param.is_input and param.is_optional:
-                res = indent("\n".join(["if (!is.null(%I%)) {", indent(res), "}"]))
-
             # Replace template placeholders
             res = res.replace("%I%", param.name.replace("_", "."))
             for i, dep in enumerate(param.dependencies):
