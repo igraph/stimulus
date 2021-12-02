@@ -87,6 +87,11 @@ class FunctionSpecificationValidator(SingleBlockCodeGenerator):
                 param_type = param_type_desc.get_c_type(param.mode)
                 by_ref = param_type_desc.is_passed_by_reference
             except NoSuchTypeError:
+                if param.type == "DEPRECATED":
+                    # Handle DEPRECATED arguments here; these are used in the R
+                    # interface to generate deprecation warnings when the user
+                    # tries to use them, but otherwise they can be ignored
+                    continue
                 param_type = "void"
                 by_ref = True
                 self.unknown_types[param.type] += 1
