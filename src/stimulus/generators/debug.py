@@ -91,24 +91,31 @@ class FunctionSpecificationValidator(SingleBlockCodeGenerator):
                 by_ref = True
                 self.unknown_types[param.type] += 1
 
-            if by_ref:
-                # Argument is always passed by reference, but it gains a
-                # "const" modifier if it is used as a purely input argument --
-                # except when it is "void*" because everyone does all sorts of
-                # nasty things with void pointers
-                param_type += "*"
-                if param.is_input and not param.is_output and param_type != "void*":
-                    param_type = f"const {param_type}"
-            else:
-                # Argument is passed by value by default, but it needs to
-                # become a pointer if it is to be used in output or in-out mode
-                if param.is_output:
+            if param_type is not None:
+                if by_ref:
+                    # Argument is always passed by reference, but it gains a
+                    # "const" modifier if it is used as a purely input argument --
+                    # except when it is "void*" because everyone does all sorts of
+                    # nasty things with void pointers
                     param_type += "*"
+                    if param.is_input and not param.is_output and param_type != "void*":
+                        param_type = f"const {param_type}"
+                else:
+                    # Argument is passed by value by default, but it needs to
+                    # become a pointer if it is to be used in output or in-out mode
+                    if param.is_output:
+                        param_type += "*"
 
-            args.append(f"{param_type} {param.name}")
+                args.append(f"{param_type} {param.name}")
 
         return_type_desc = self.get_type_descriptor(func_desc.return_type)
         return_type = return_type_desc.get_c_type()
+
+        if return_type is None:
+            raise NoSuchTypeError(
+                func_desc.return_type,
+                message=f"{func_desc.name} declares a return value that has no corresponding C type",
+            )
 
         args_str = ", ".join(args)
         write(f"{return_type} generated_{name}({args_str});")

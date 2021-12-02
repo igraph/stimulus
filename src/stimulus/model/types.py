@@ -1,11 +1,6 @@
 from dataclasses import dataclass, field
 from deepmerge import always_merger
-from typing import (
-    Any,
-    Dict,
-    Mapping,
-    Set,
-)
+from typing import Any, Dict, Mapping, Optional, Set
 
 from stimulus.errors import NoSuchTypeError
 
@@ -13,6 +8,9 @@ from .base import DescriptorMixin
 from .parameters import ParamMode
 
 __all__ = ("TypeDescriptor",)
+
+
+_MISSING = object()
 
 
 @dataclass
@@ -67,30 +65,43 @@ class TypeDescriptor(Mapping[str, Any], DescriptorMixin):
 
         return c_decl.replace(type_token, c_type or "").replace(name_token, name)
 
-    def get_c_type(self, mode: ParamMode = ParamMode.OUT) -> str:
+    def get_c_type(self, mode: ParamMode = ParamMode.OUT) -> Optional[str]:
         """Returns a string that contains the C type corresponding to this
-        abstract type.
+        abstract type, or `None` if the abstract type has no corresponding
+        C type in the given mode.
+
+        Returns:
+            a non-empty string or `None` if the abstract type has no corresponding
+            C type in the given mode
 
         Raises:
-            NoSuchTypeError: if this type has no corresponding C type in the
-                given mode
+            NoSuchTypeError: if the type specification does not specify
+                explciitly the corresponding C type in the given mode (and does
+                not state explicitly that the abstract type does _not_ have
+                a corresponding C type either)
         """
         mode_str = str(mode.value).upper()
-        c_type = self._obj.get("CTYPE")
+        c_type = self._obj.get("CTYPE", _MISSING)
+        if c_type is _MISSING:
+            raise NoSuchTypeError(
+                f"{self.name} does not specify its corresponding C type"
+            )
+
         if isinstance(c_type, dict):
             try:
-                return c_type[mode_str]  # type: ignore
+                value = c_type[mode_str]
             except KeyError:
                 raise NoSuchTypeError(
-                    f"Stimulus type {self.name} has no corresponding C type in mode {mode_str}"
+                    f"{self.name} does not specify its corresponding C type in mode {mode_str}"
                 )
-        elif isinstance(c_type, str):
-            return c_type
-        elif c_type is None:
-            raise NoSuchTypeError(
-                self.name,
-                message=f"Stimulus type {self.name} has no corresponding C type",
-            )
+            if isinstance(value, str) or value is None:
+                return value or None
+            else:
+                raise ValueError(
+                    f"CTYPE declaration must be a string or a mapping, got {type(value)}"
+                )
+        elif isinstance(c_type, str) or c_type is None:
+            return c_type or None
         else:
             raise ValueError(
                 f"CTYPE declaration must be a string or a mapping, got {type(c_type)}"

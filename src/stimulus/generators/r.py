@@ -489,7 +489,14 @@ class RCCodeGenerator(SingleBlockCodeGenerator):
         outconv = [do_par(param) for param in spec.iter_parameters()]
         outconv = [o for o in outconv if o != ""]
 
-        retpars = [param for param in spec.iter_output_parameters()]
+        # Consider only those parameters that have a corresponding declaration
+        # in C.
+        retpars = []
+        for param in spec.iter_output_parameters():
+            type_desc = self.get_type_descriptor(param.type)
+            if type_desc.get_c_type(param.mode) is not None:
+                retpars.append(param)
+
         if not retpars:
             # return the return value of the function
             rt = self.get_type_descriptor(spec.return_type)
