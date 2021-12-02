@@ -123,8 +123,17 @@ def main():
         if output == "-":
             generator.generate(inputs, sys.stdout)
         else:
-            with open(output, "w") as fp:
-                generator.generate(inputs, fp)
+            try:
+                with open(output, "w") as fp:
+                    generator.generate(inputs, fp)
+            except Exception:
+                # An error happened; delete the file and re-raise the exception
+                try:
+                    os.unlink(output)
+                except Exception:
+                    # Well, meh.
+                    pass
+                raise
 
 
 if __name__ == "__main__":
