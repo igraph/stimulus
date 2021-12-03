@@ -112,13 +112,26 @@ class TypeDescriptor(Mapping[str, Any], DescriptorMixin):
     ) -> str:
         """Returns a template string that specifies how parameters of this type
         should be converted when it is used as an input parameter.
+
+        When the type definition contains several conversion code snippets
+        depending on the mode of the parameter and there is no snippet for the
+        `INOUT` mode, it is assumed to be identical to the code snippet for
+        the `IN` mode.
         """
         if "INCONV" in self:
             inconv = self["INCONV"]
             if isinstance(inconv, str):
                 return inconv if mode.is_input else default
             elif isinstance(inconv, dict):
-                return inconv.get(mode.value.upper(), default)
+                try:
+                    return inconv[mode.value.upper()] or default
+                except KeyError:
+                    if mode is ParamMode.INOUT:
+                        return self.get_input_conversion_template_for(
+                            ParamMode.IN, default=default
+                        )
+                    else:
+                        return default
             else:
                 raise TypeError(
                     f"INCONV should be a string or a dict for type {self.name}"
@@ -131,13 +144,26 @@ class TypeDescriptor(Mapping[str, Any], DescriptorMixin):
     ) -> str:
         """Returns a template string that specifies how parameters of this type
         should be converted when it is used as an output parameter.
+
+        When the type definition contains several conversion code snippets
+        depending on the mode of the parameter and there is no snippet for the
+        `INOUT` mode, it is assumed to be identical to the code snippet for
+        the `OUT` mode.
         """
         if "OUTCONV" in self:
             outconv = self["OUTCONV"]
             if isinstance(outconv, str):
                 return outconv if mode.is_output else default
             elif isinstance(outconv, dict):
-                return outconv.get(mode.value.upper(), default)
+                try:
+                    return outconv[mode.value.upper()] or default
+                except KeyError:
+                    if mode is ParamMode.INOUT:
+                        return self.get_output_conversion_template_for(
+                            ParamMode.OUT, default=default
+                        )
+                    else:
+                        return default
             else:
                 raise TypeError(
                     f"OUTCONV should be a string or a dict for type {self.name}"
