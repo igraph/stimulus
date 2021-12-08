@@ -29,6 +29,7 @@ class FunctionDescriptor(Mapping[str, Any], DescriptorMixin):
 
     _obj: Dict[str, Any] = field(default_factory=dict)
     _parameters: Optional[OrderedDict[str, ParamSpec]] = None
+    _param_order: List[str] = field(default_factory=list)
 
     flags: Set[str] = field(default_factory=set)
     ignored_by: Set[str] = field(default_factory=set)
@@ -59,6 +60,7 @@ class FunctionDescriptor(Mapping[str, Any], DescriptorMixin):
     def parameters(self) -> OrderedDict[str, ParamSpec]:
         if self._parameters is None:
             self._parameters = self._parse_parameter_specifications()
+            self._update_parameter_order()
         return self._parameters
 
     def get_name_in_generated_code(self, language: str) -> str:
@@ -104,29 +106,60 @@ class FunctionDescriptor(Mapping[str, Any], DescriptorMixin):
         """
         return any(not param.is_primary for param in self.iter_output_parameters())
 
-    def iter_input_parameters(self) -> Iterable[ParamSpec]:
-        """Iterates over the input and in-out parameters of this function in the
-        order they were defined.
-        """
-        return (param for param in self.parameters.values() if param.is_input)
+    def iter_input_parameters(self, *, reorder: bool = False) -> Iterable[ParamSpec]:
+        """Iterates over the input and in-out parameters of this function.
 
-    def iter_parameters(self) -> Iterable[ParamSpec]:
-        """Iterates over the parameters of this function in the order they
-        were defined.
+        Parameters:
+            reorder: when `False`, iterates over the parameters of this function
+                in the order they were _defined_, which should match the ordering
+                in C. When `True`, iterates over the parameters in the preferred
+                order as specified by `PARAM_ORDER`; this matches the order they
+                should appear in the higher level interface. The two are typically
+                identical but sometimes they are not.
         """
-        return self.parameters.values()
+        if reorder:
+            for name in self._param_order:
+                param = self.parameters[name]
+                if param.is_input:
+                    yield param
+        else:
+            yield from (param for param in self.parameters.values() if param.is_input)
+
+    def iter_parameters(self, *, reorder: bool = False) -> Iterable[ParamSpec]:
+        """Iterates over the parameters of this function.
+
+        Parameters:
+            reorder: when `False`, iterates over the parameters of this function
+                in the order they were _defined_, which should match the ordering
+                in C. When `True`, iterates over the parameters in the preferred
+                order as specified by `PARAM_ORDER`; this matches the order they
+                should appear in the higher level interface. The two are typically
+                identical but sometimes they are not.
+        """
+        if reorder:
+            return (self.parameters[name] for name in self._param_order)
+        else:
+            return self.parameters.values()
 
     def iter_output_parameters(self) -> Iterable[ParamSpec]:
         """Iterates over the output and in-out parameters of this function in the
-        order they were defined.
+        order they were _defined_.
         """
         return (param for param in self.parameters.values() if param.is_output)
 
     def iter_primary_output_parameters(self) -> Iterable[ParamSpec]:
         """Iterates over the primary output and in-out parameters of this function in the
-        order they were defined.
+        order they were _defined_.
         """
         return (param for param in self.iter_output_parameters() if param.is_primary)
+
+    def iter_reordered_parameters(self) -> Iterable[ParamSpec]:
+        """Iterates over the parameters of this function in the order they
+        should appear in the argument list of the function for the higher
+        level interface. This is different from `iter_parameters()` if the
+        `PARAM_ORDER` key is present in the input YAML file.
+        """
+        return (self.parameters[name] for name in self._param_order)
 
     def update_from(self, obj: Dict[str, str]) -> None:
         """Updates the function descriptor from an object typically parsed from
@@ -140,6 +173,9 @@ class FunctionDescriptor(Mapping[str, Any], DescriptorMixin):
           - The ``DEPS`` key from `obj` overwrites the previous dependencies.
 
           - The ``RETURN`` key from `obj` overwrites the previous return type.
+
+          - The ``PARAM_ORDER`` key from `obj` overwrites the previous parameter
+            order.
 
           - THe values from the ``IGNORE`` list are added to the existing list
             of generators that will ignore this function. ``IGNORE`` may also
@@ -163,6 +199,10 @@ class FunctionDescriptor(Mapping[str, Any], DescriptorMixin):
             self._parameters = None
 
         if "OUTPARAMNAMES" in obj:
+            self._parameters = None
+
+        if "PARAM_ORDER" in obj:
+            self._param_order.clear()
             self._parameters = None
 
         always_merger.merge(self._obj, obj)
@@ -238,3 +278,41 @@ class FunctionDescriptor(Mapping[str, Any], DescriptorMixin):
                     )
 
         return result
+
+    def _update_parameter_order(self) -> None:
+        assert self._parameters is not None
+
+        param_order_str = self._obj.get("PARAM_ORDER")
+
+        if not param_order_str:
+            param_order = []
+        elif isinstance(param_order_str, str):
+            param_order = param_order_str.split(",")
+        elif hasattr(param_order_str, "__iter__"):
+            param_order = list(param_order_str)
+        else:
+            raise TypeError(
+                f"PARAM_ORDER must be a string or a list, got {type(param_order_str)!r}"
+            )
+
+        self._param_order.clear()
+        rest_index = -1
+
+        not_seen_params = list(self._parameters.keys())
+        for name in param_order:
+            name = name.strip()
+            if name in not_seen_params:
+                self._param_order.append(name)
+                not_seen_params.remove(name)
+            elif name == "...":
+                rest_index = len(self._param_order)
+            else:
+                raise RuntimeError(
+                    f"parameter {name!r} appears twice in PARAM_ORDER for "
+                    f"function {self.name!r}"
+                )
+
+        if not_seen_params:
+            if rest_index < 0:
+                rest_index = len(self._param_order)
+            self._param_order[rest_index:rest_index] = not_seen_params

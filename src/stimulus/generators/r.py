@@ -97,7 +97,10 @@ class RRCodeGenerator(SingleBlockCodeGenerator):
 
             return header
 
-        head = [handle_input_argument(param) for param in spec.iter_input_parameters()]
+        head = [
+            handle_input_argument(param)
+            for param in spec.iter_input_parameters(reorder=True)
+        ]
         head = [h for h in head if h != ""]
         if needs_details_arg:
             if "details" in head:
