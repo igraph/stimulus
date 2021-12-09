@@ -1,6 +1,12 @@
 from typing import Optional
 
-__all__ = ("StimulusError", "ParseError", "CodeGenerationError", "NoSuchTypeError")
+__all__ = (
+    "StimulusError",
+    "ParseError",
+    "CodeGenerationError",
+    "InvalidDependencyError",
+    "NoSuchTypeError",
+)
 
 
 class StimulusError(RuntimeError):
@@ -30,6 +36,14 @@ class ParseError(StimulusError):
 
 class CodeGenerationError(StimulusError):
     """Base class for errors thrown while generating code."""
+
+    pass
+
+
+class InvalidDependencyError(CodeGenerationError):
+    """Error thrown when a parameter specification refers to a non-existing
+    parameter in a dependency.
+    """
 
     pass
 

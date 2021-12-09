@@ -13,7 +13,7 @@ from functools import partial
 from textwrap import dedent
 from typing import IO, List, Sequence
 
-from stimulus.errors import NoSuchTypeError
+from stimulus.errors import InvalidDependencyError, NoSuchTypeError
 
 from .base import SingleBlockCodeGenerator
 from .utils import create_indentation_function
@@ -78,7 +78,9 @@ class FunctionSpecificationValidator(SingleBlockCodeGenerator):
 
         args: List[str] = []
 
+        # Determine parameter declarations in C
         func_desc = self.get_function_descriptor(name)
+        param_names = set(param.name for param in func_desc.iter_parameters())
         for param in func_desc.iter_parameters():
             # TODO(ntamas): maybe move this logic to the type descriptor into
             # a declare_c_argument() method?
@@ -113,15 +115,25 @@ class FunctionSpecificationValidator(SingleBlockCodeGenerator):
 
                 args.append(f"{param_type} {param.name}")
 
+            # Check whether the other parameters named in the dependencies are
+            # all valid
+            for dependency in param.dependencies:
+                if dependency not in param_names:
+                    raise InvalidDependencyError(
+                        f"{func_desc.name} parameter {param.name!r} refers to "
+                        f"an unknown dependency: {dependency!r}"
+                    )
+
+        # Determine return type in C
         return_type_desc = self.get_type_descriptor(func_desc.return_type)
         return_type = return_type_desc.get_c_type()
-
         if return_type is None:
             raise NoSuchTypeError(
                 func_desc.return_type,
                 message=f"{func_desc.name} declares a return value that has no corresponding C type",
             )
 
+        # Write the function declaration to the output
         args_str = ", ".join(args)
         write(f"{return_type} generated_{name}({args_str});")
 
