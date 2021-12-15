@@ -47,6 +47,7 @@ def _register_code_generators() -> None:
     """Register all code generators in the project into the registry."""
     from .debug import FunctionSpecificationValidator, ListTypesCodeGenerator
     from .java import JavaCCodeGenerator, JavaJavaCodeGenerator
+    from .python import PythonCTypesCodeGenerator
     from .r import (
         RCCodeGenerator,
         RInitCodeGenerator,
@@ -59,6 +60,7 @@ def _register_code_generators() -> None:
         "debug:list-types": ListTypesCodeGenerator,
         "java:c": JavaCCodeGenerator,
         "java:java": JavaJavaCodeGenerator,
+        "python:ctypes": PythonCTypesCodeGenerator,
         "r:c": RCCodeGenerator,
         "r:init": RInitCodeGenerator,
         "r:r": RRCodeGenerator,
