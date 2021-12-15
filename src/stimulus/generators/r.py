@@ -411,10 +411,23 @@ class RCCodeGenerator(SingleBlockCodeGenerator):
         def do_par(param: ParamSpec) -> str:
             cname = "c_" + param.name
             t = self.get_type_descriptor(param.type)
-            inconv = indent(t.get_input_conversion_template_for(param.mode))
+
+            # Get the template from the type specification
+            inconv = t.get_input_conversion_template_for(param.mode)
+
+            if not inconv and param.is_input and t.is_enum:
+                # If the parameter is an input argument and its type is an
+                # enum, we can provide a default conversion: we just cast its
+                # numeric value to the right type
+                c_type = t.get_c_type(mode=param.mode)
+                if c_type is not None:
+                    inconv = f"%C% = ({c_type}) REAL(%I%)[0];"
+
+            # Replace the tokens in the type specification
             for i, dep in enumerate(param.dependencies):
                 inconv = inconv.replace("%C" + str(i + 1) + "%", "c_" + dep)
-            return inconv.replace("%C%", cname).replace("%I%", param.name)
+
+            return indent(inconv).replace("%C%", cname).replace("%I%", param.name)
 
         inconv = [do_par(param) for param in desc.iter_parameters()]
         inconv = [i for i in inconv if i != ""]

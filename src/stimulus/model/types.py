@@ -34,6 +34,51 @@ class TypeDescriptor(Mapping[str, Any], DescriptorMixin):
     def __len__(self):
         return len(self._obj)
 
+    def declare_c_function_argument(
+        self, name: Optional[str] = None, *, mode: ParamMode = ParamMode.OUT
+    ) -> str:
+        """Returns a string that declares a function argument in C using this
+        type.
+
+        Parameters:
+            name: the name of the C argument to declare. May be left as an
+                empty string or `None` if we only need the type declaration in
+                the function header
+
+        Returns:
+            a C function argument declaration, without indentation or trailing
+            newline, ready to be used in a function header, or an empty string
+            if the argument with this abstract type should not be used in C
+            function headers
+
+        Raises:
+            NoSuchTypeError: if the type specification does not specify
+                explicitly the corresponding C type in the given mode (and does
+                not state explicitly that the abstract type does _not_ have
+                a corresponding C type either)
+        """
+        param_type = self.get_c_type(mode)
+        by_ref = self.is_passed_by_reference
+
+        if param_type is None:
+            return ""  # no argument declaration needed
+
+        if by_ref:
+            # Argument is always passed by reference, but it gains a
+            # "const" modifier if it is used as a purely input argument --
+            # except when it is "void*" because everyone does all sorts of
+            # nasty things with void pointers
+            param_type += "*"
+            if mode.is_input and not mode.is_output and param_type != "void*":
+                param_type = f"const {param_type}"
+        else:
+            # Argument is passed by value by default, but it needs to
+            # become a pointer if it is to be used in output or in-out mode
+            if mode.is_output:
+                param_type += "*"
+
+        return f"{param_type} {name}" if name else param_type
+
     def declare_c_variable(
         self,
         name: str,
@@ -76,7 +121,7 @@ class TypeDescriptor(Mapping[str, Any], DescriptorMixin):
 
         Raises:
             NoSuchTypeError: if the type specification does not specify
-                explciitly the corresponding C type in the given mode (and does
+                explicitly the corresponding C type in the given mode (and does
                 not state explicitly that the abstract type does _not_ have
                 a corresponding C type either)
         """
@@ -178,8 +223,20 @@ class TypeDescriptor(Mapping[str, Any], DescriptorMixin):
         return flag.lower() in self.flags
 
     @property
+    def is_bitfield(self) -> bool:
+        """Returns whether the type is a bitfield type in the C layer."""
+        return self.has_flag("bits")
+
+    @property
+    def is_enum(self) -> bool:
+        """Returns whether the type is an enumeration type in the C layer."""
+        return self.has_flag("enum")
+
+    @property
     def is_passed_by_reference(self) -> bool:
-        """Returns whether the type is a primitive type in the C layer."""
+        """Returns whether the type is typically passed by reference in function
+        calls in the C layer.
+        """
         return self.has_flag("by_ref")
 
     def translate_default_value(self, value: Any) -> str:

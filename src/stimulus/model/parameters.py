@@ -128,6 +128,11 @@ class ParamSpec:
         return result
 
     @property
+    def is_deprecated(self) -> bool:
+        """Returns whether the function parameter is marked as deprecated."""
+        return self.type == "DEPRECATED"
+
+    @property
     def is_input(self) -> bool:
         """Returns whether the function parameter is an input argument."""
         return self.mode in (ParamMode.IN, ParamMode.INOUT)
