@@ -421,7 +421,7 @@ class RCCodeGenerator(SingleBlockCodeGenerator):
                 # numeric value to the right type
                 c_type = t.get_c_type(mode=param.mode)
                 if c_type is not None:
-                    inconv = f"%C% = ({c_type}) REAL(%I%)[0];"
+                    inconv = f"%C% = ({c_type}) Rf_asInteger(%I%);"
 
             # Replace the tokens in the type specification
             for i, dep in enumerate(param.dependencies):
