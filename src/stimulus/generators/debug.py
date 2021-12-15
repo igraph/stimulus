@@ -82,38 +82,22 @@ class FunctionSpecificationValidator(SingleBlockCodeGenerator):
         func_desc = self.get_function_descriptor(name)
         param_names = set(param.name for param in func_desc.iter_parameters())
         for param in func_desc.iter_parameters():
-            # TODO(ntamas): maybe move this logic to the type descriptor into
-            # a declare_c_argument() method?
+            if param.is_deprecated:
+                # Ignore deprecated parameters; they are only used in the R
+                # interface to show deprecation warnings
+                continue
+
             try:
                 param_type_desc = self.get_type_descriptor(param.type)
-                param_type = param_type_desc.get_c_type(param.mode)
-                by_ref = param_type_desc.is_passed_by_reference
+                arg = param_type_desc.declare_c_function_argument(
+                    param.name, mode=param.mode
+                )
             except NoSuchTypeError:
-                if param.type == "DEPRECATED":
-                    # Handle DEPRECATED arguments here; these are used in the R
-                    # interface to generate deprecation warnings when the user
-                    # tries to use them, but otherwise they can be ignored
-                    continue
-                param_type = "void"
-                by_ref = True
+                arg = "void*"
                 self.unknown_types[param.type] += 1
 
-            if param_type is not None:
-                if by_ref:
-                    # Argument is always passed by reference, but it gains a
-                    # "const" modifier if it is used as a purely input argument --
-                    # except when it is "void*" because everyone does all sorts of
-                    # nasty things with void pointers
-                    param_type += "*"
-                    if param.is_input and not param.is_output and param_type != "void*":
-                        param_type = f"const {param_type}"
-                else:
-                    # Argument is passed by value by default, but it needs to
-                    # become a pointer if it is to be used in output or in-out mode
-                    if param.is_output:
-                        param_type += "*"
-
-                args.append(f"{param_type} {param.name}")
+            if arg:
+                args.append(arg)
 
             # Check whether the other parameters named in the dependencies are
             # all valid

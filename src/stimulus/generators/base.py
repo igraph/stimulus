@@ -151,6 +151,9 @@ class CodeGeneratorBase(CodeGenerator):
         ok = True
 
         for param in spec.iter_parameters():
+            if param.is_deprecated:
+                continue
+
             type_name = param.type
             if type_name not in self._type_descriptors:
                 message = (
