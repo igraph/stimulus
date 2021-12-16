@@ -415,7 +415,7 @@ class RCCodeGenerator(SingleBlockCodeGenerator):
             # Get the template from the type specification
             inconv = t.get_input_conversion_template_for(param.mode)
 
-            if not inconv and param.is_input and t.is_enum:
+            if not inconv and param.is_input and (t.is_enum or t.is_bitfield):
                 # If the parameter is an input argument and its type is an
                 # enum, we can provide a default conversion: we just cast its
                 # numeric value to the right type
