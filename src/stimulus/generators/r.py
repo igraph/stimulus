@@ -289,7 +289,7 @@ class RRCodeGenerator(SingleBlockCodeGenerator):
                     lines.append(f"res${par} <- {par}")
 
             if lines:
-                out.write('  if (igraph_opt("add.params") {\n')
+                out.write('  if (igraph_opt("add.params")) {\n')
                 for line in lines:
                     out.write(indent(indent(line)) + "\n")
                 out.write("  }\n\n")
