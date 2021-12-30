@@ -260,33 +260,39 @@ class RRCodeGenerator(SingleBlockCodeGenerator):
         r_spec = spec._obj.get("R", {})
 
         ## Add graph attributes
-        if "GATTR" in r_spec:
-            gattrs = r_spec["GATTR"]
+        if "GATTR" in r_spec or "GATTR-PARAM" in r_spec:
             gattrs_dict = {}
+            lines = []
+
+            gattrs = r_spec.get("GATTR")
+            pars = r_spec.get("GATTR-PARAM")
+
             if isinstance(gattrs, dict):
                 gattrs_dict.update(gattrs)
-            else:
+            elif gattrs is not None:
                 for item in gattrs.split(","):
                     name, value = item.split(" IS ", 1)
                     name = name.strip()
                     value = value.strip()
                     gattrs_dict[name] = value
+
             if gattrs_dict:
-                out.write(
-                    "\n".join(
-                        f"  res <- set.graph.attribute(res, '{name}', '{val}')"
-                        for name, val in gattrs_dict.items()
-                    )
-                    + "\n"
+                lines.extend(
+                    f"res${name} <- {val!r}" for name, val in gattrs_dict.items()
                 )
 
-        ## Add some parameters as additional graph attributes
-        if "GATTR-PARAM" in r_spec:
-            pars = r_spec["GATTR-PARAM"].split(",")
-            pars = [p.strip().replace("_", ".") for p in pars]
-            sstr = "  res <- set.graph.attribute(res, '{par}', {par})\n"
-            for p in pars:
-                out.write(sstr.format(par=p))
+            if pars is not None:
+                if isinstance(pars, str):
+                    pars = pars.split(",")
+                for par in pars:
+                    par = par.strip().replace("_", ".")
+                    lines.append(f"res${par} <- {par}")
+
+            if lines:
+                out.write('  if (igraph_opt("add.params") {\n')
+                for line in lines:
+                    out.write(indent(indent(line)) + "\n")
+                out.write("  }\n\n")
 
         ## Set the class if requested
         if "CLASS" in r_spec:
