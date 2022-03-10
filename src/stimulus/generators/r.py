@@ -342,7 +342,7 @@ class RCCodeGenerator(SingleBlockCodeGenerator):
 %(outconv)s
 
   UNPROTECT(1);
-  return(result);
+  return(r_result);
 }\n"""
             % res
         )
@@ -401,9 +401,9 @@ class RCCodeGenerator(SingleBlockCodeGenerator):
         retdecl = return_type_desc.declare_c_variable("c_result") if not retpars else ""
 
         if len(retpars) <= 1:
-            res = "\n".join(inout + out + [retdecl] + ["SEXP result;"])
+            res = "\n".join(inout + out + [retdecl] + ["SEXP r_result;"])
         else:
-            res = "\n".join(inout + out + [retdecl] + ["SEXP result, names;"])
+            res = "\n".join(inout + out + [retdecl] + ["SEXP r_result, r_names;"])
         return indent(res)
 
     def chunk_inconv(self, desc: FunctionDescriptor) -> str:
@@ -515,31 +515,31 @@ class RCCodeGenerator(SingleBlockCodeGenerator):
             # return the return value of the function
             rt = self.get_type_descriptor(spec.return_type)
             retconv = indent(rt.get_output_conversion_template_for(ParamMode.OUT))
-            retconv = retconv.replace("%C%", "c_result").replace("%I%", "result")
+            retconv = retconv.replace("%C%", "c_result").replace("%I%", "r_result")
             ret = "\n".join(outconv) + "\n" + retconv
         elif len(retpars) == 1:
             # return the single output value
-            retconv = "  result=" + retpars[0].name + ";"
+            retconv = "  r_result = " + retpars[0].name + ";"
             ret = "\n".join(outconv) + "\n" + retconv
         else:
             # create a list of output values
             sets = [
-                f"  SET_VECTOR_ELT(result, {index}, {param.name});"
+                f"  SET_VECTOR_ELT(r_result, {index}, {param.name});"
                 for index, param in enumerate(retpars)
             ]
             names = [
-                f'  SET_STRING_ELT(names, {index}, CREATE_STRING_VECTOR("{param.name_as_output}"));'
+                f'  SET_STRING_ELT(r_names, {index}, CREATE_STRING_VECTOR("{param.name_as_output}"));'
                 for index, param in enumerate(retpars)
             ]
             ret = "\n".join(
                 [
-                    f"  PROTECT(result=NEW_LIST({len(retpars)}));",
-                    f"  PROTECT(names=NEW_CHARACTER({len(retpars)}));",
+                    f"  PROTECT(r_result=NEW_LIST({len(retpars)}));",
+                    f"  PROTECT(r_names=NEW_CHARACTER({len(retpars)}));",
                 ]
                 + outconv
                 + sets
                 + names
-                + ["  SET_NAMES(result, names);", f"  UNPROTECT({len(sets) + 1});"]
+                + ["  SET_NAMES(r_result, r_names);", f"  UNPROTECT({len(sets) + 1});"]
             )
 
         return ret
