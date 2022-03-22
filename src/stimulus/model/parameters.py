@@ -72,10 +72,13 @@ class ParamSpec:
     code for the in- and out-conversions of this parameter.
     """
 
-    output_name_override: Optional[str] = None
-    """Name of the parameter when used as an output and the code generator needs
-    to return multiple output parameters to the caller. `None` means that the
-    name is the same as the "real" name of the parameter.
+    name_override: Optional[str] = None
+    """Name of the parameter in the generated higher-level interface. This can
+    be used in two cases: 1) when the parameter is used as an output and the
+    code generator needs to return multiple output parameters to the caller,
+    2) when the parameter is used as an input and the higher-level interface
+    needs a different name due to compatibility issues or keyword restrictions.
+    `None` means that the name is the same as the "real" name of the parameter.
     """
 
     @classmethod
@@ -147,11 +150,8 @@ class ParamSpec:
         return str(self.mode.value).upper()
 
     @property
-    def name_as_output(self) -> str:
-        """Returns the name of the parameter when it is used as an output
-        parameter. This can be used by a code generator for a higher-level
-        interface when it needs to return multiple output parameters; typically
-        this is done by returning a key-value mapping where the key is the
-        "output name" of the parameter.
+    def name_in_higher_level_interface(self) -> str:
+        """Returns the name of the parameter when it is used in the higher-level
+        interface.
         """
-        return self.output_name_override or self.name
+        return self.name_override or self.name

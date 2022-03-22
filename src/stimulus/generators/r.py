@@ -22,6 +22,13 @@ from .utils import create_indentation_function
 indent = create_indentation_function("  ")
 
 
+def get_r_parameter_name(param: ParamSpec) -> str:
+    result = param.name_in_higher_level_interface
+    if result == param.name:
+        result = result.replace("_", ".")
+    return result
+
+
 class RRCodeGenerator(SingleBlockCodeGenerator):
     def generate_function(self, function: str, out: IO[str]) -> None:
         # Check types
@@ -71,11 +78,11 @@ class RRCodeGenerator(SingleBlockCodeGenerator):
         def handle_input_argument(param: ParamSpec) -> str:
             tname = param.type
             type_desc = self.get_type_descriptor(tname)
-            header = param.name.replace("_", ".")
+            header = name_in_r_interface = get_r_parameter_name(param)
             if "HEADER" in type_desc:
                 header = type_desc["HEADER"] or ""
             if header:
-                header = header.replace("%I%", param.name.replace("_", "."))
+                header = header.replace("%I%", name_in_r_interface)
             else:
                 header = ""
 
@@ -135,7 +142,7 @@ class RRCodeGenerator(SingleBlockCodeGenerator):
             res = indent(t.get_input_conversion_template_for(param.mode))
 
             # Replace template placeholders
-            res = res.replace("%I%", param.name.replace("_", "."))
+            res = res.replace("%I%", get_r_parameter_name(param))
             for i, dep in enumerate(param.dependencies):
                 res = res.replace("%I" + str(i + 1) + "%", dep)
 
@@ -167,7 +174,7 @@ class RRCodeGenerator(SingleBlockCodeGenerator):
         parts = []
         for param in spec.iter_input_parameters():
             type = self.get_type_descriptor(param.type)
-            name = param.name.replace("_", ".")
+            name = get_r_parameter_name(param)
             call = type.get("CALL", name)
             if call:
                 parts.append(call.replace("%I%", name))
@@ -183,7 +190,7 @@ class RRCodeGenerator(SingleBlockCodeGenerator):
             iprefix: str = "",
         ):
             if realname is None:
-                realname = param.name
+                realname = get_r_parameter_name(param)
 
             tname = param.type
             t = self.get_type_descriptor(tname)
@@ -528,7 +535,7 @@ class RCCodeGenerator(SingleBlockCodeGenerator):
                 for index, param in enumerate(retpars)
             ]
             names = [
-                f'  SET_STRING_ELT(r_names, {index}, CREATE_STRING_VECTOR("{param.name_as_output}"));'
+                f'  SET_STRING_ELT(r_names, {index}, CREATE_STRING_VECTOR("{param.name_in_higher_level_interface}"));'
                 for index, param in enumerate(retpars)
             ]
             ret = "\n".join(

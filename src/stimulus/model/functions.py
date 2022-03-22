@@ -185,8 +185,8 @@ class FunctionDescriptor(Mapping[str, Any], DescriptorMixin):
             flags. ``FLAGS`` may also be a string, in which case it will be
             split along commas.
 
-          - The mapping in the ``OUTPARAMNAMES`` key is merged with the
-            existing output parameter name mapping.
+          - The mapping in the ``PARAM_NAMES`` key is merged with the
+            existing parameter name mapping.
 
           - Any other key in `obj` is merged with the existing key-value store.
         """
@@ -198,7 +198,7 @@ class FunctionDescriptor(Mapping[str, Any], DescriptorMixin):
             self._obj["DEPS"] = ""
             self._parameters = None
 
-        if "OUTPARAMNAMES" in obj:
+        if "PARAM_NAMES" in obj:
             self._parameters = None
 
         if "PARAM_ORDER" in obj:
@@ -239,7 +239,7 @@ class FunctionDescriptor(Mapping[str, Any], DescriptorMixin):
         params: List[str]
 
         param_spec_str = self._obj.get("PARAMS")
-        output_param_name_mapping = self._obj.get("OUTPARAMNAMES")
+        param_name_mapping = self._obj.get("PARAM_NAMES")
 
         if not param_spec_str:
             params = []
@@ -266,15 +266,15 @@ class FunctionDescriptor(Mapping[str, Any], DescriptorMixin):
                         f"function {self.name!r}"
                     )
 
-        if output_param_name_mapping:
-            for name, new_name in output_param_name_mapping.items():
+        if param_name_mapping:
+            for name, new_name in param_name_mapping.items():
                 param = result.get(name)
-                if param and param.is_output:
-                    param.output_name_override = new_name or None
+                if param:
+                    param.name_override = new_name or None
                 else:
                     raise RuntimeError(
-                        f"output parameter name was overridden for unknown "
-                        f"output parameter {name!r} of function {self.name!r}"
+                        f"parameter name was overridden for unknown "
+                        f"parameter {name!r} of function {self.name!r}"
                     )
 
         return result
