@@ -25,6 +25,25 @@ def _get_ctypes_arg_type_from_c_arg_type(c_type: str):
         c_type = c_type[:-1].strip()
         wrap_counter += 1
 
+    # Add c_ prefix if needed
+    if c_type in (
+        "char",
+        "int",
+        "float",
+        "double",
+        "size_t",
+        "ssize_t",
+        "bool",
+        "void",
+    ):
+        c_type = f"c_{c_type}"
+
+    # Some ctypes types have specific aliases for the single-pointer case
+    if wrap_counter > 0 and c_type in ("c_void", "c_char", "c_wchar"):
+        wrap_counter -= 1
+        c_type = f"{c_type}_p"
+
+    # Wrap the type in POINTER() as many times as needed
     while wrap_counter > 0:
         c_type = f"POINTER({c_type})"
         wrap_counter -= 1
@@ -50,10 +69,12 @@ class PythonCTypesCodeGenerator(SingleBlockCodeGenerator):
       namespace, aliased to the appropriate ctypes types
     """
 
+    bitfield_types: Set[str]
     enum_types: Set[str]
     lines: List[str]
 
     def generate_preamble(self, inputs: Sequence[str], output: IO[str]) -> None:
+        self.bitfield_types = set()
         self.enum_types = set()
         self.lines = []
         return super().generate_preamble(inputs, output)
@@ -74,18 +95,24 @@ class PythonCTypesCodeGenerator(SingleBlockCodeGenerator):
 
         # Construct Python return type
         return_type = self.get_type_descriptor(spec.return_type)
-        py_return_type: Optional[str] = (
-            return_type.get("CTYPES_RETURN_TYPE") or return_type.get_c_type()
-        )
+        py_return_type: Optional[str] = return_type.get("CTYPES_RETURN_TYPE")
+        if not py_return_type:
+            # Try deriving the ctypes type
+            py_return_type = _get_ctypes_arg_type_from_c_arg_type(
+                return_type.get_c_type()
+            )
+
         if not py_return_type:
             raise NoSuchTypeError(
                 spec.return_type,
                 message=f"No ctypes return type known for abstract type {spec.return_type}",
             )
 
-        # Remember the type if it is an enum type
+        # Remember the type if it is an enum type or a bitfield type
         if return_type.is_enum:
             self.enum_types.add(py_return_type)
+        if return_type.is_bitfield:
+            self.bitfield_types.add(py_return_type)
 
         # Construct Python argument types in the ctypes layer
         py_arg_types: List[str] = []
@@ -102,9 +129,11 @@ class PythonCTypesCodeGenerator(SingleBlockCodeGenerator):
             py_arg_type = _get_ctypes_arg_type_from_c_arg_type(c_arg_type)
             py_arg_types.append(py_arg_type)
 
-            # Remember the type if it is an enum type
+            # Remember the type if it is an enum type or a bitfield type
             if param_type.is_enum:
                 self.enum_types.add(py_arg_type)
+            if param_type.is_bitfield:
+                self.bitfield_types.add(py_arg_type)
 
         py_arg_types_joined = ", ".join(py_arg_types)
 
@@ -120,6 +149,13 @@ class PythonCTypesCodeGenerator(SingleBlockCodeGenerator):
             write("\n")
             for enum_type in sorted(self.enum_types):
                 write(f"{enum_type} = c_int\n")
+            write("\n")
+
+        if self.bitfield_types:
+            write("# Set up aliases for all bitfield types\n")
+            write("\n")
+            for bitfield_type in sorted(self.bitfield_types):
+                write(f"{bitfield_type} = c_int\n")
             write("\n")
 
         write("# Add argument and return types for functions imported from igraph\n")
