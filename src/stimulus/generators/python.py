@@ -271,7 +271,7 @@ class ArgInfo:
         )
 
 
-class PythonCTypesWrapperCodeGenerator(SingleBlockCodeGenerator):
+class PythonCTypesTypedWrapperCodeGenerator(SingleBlockCodeGenerator):
     def generate_function(self, name: str, output: IO[str]) -> None:
         write = output.write
 
