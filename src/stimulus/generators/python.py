@@ -6,7 +6,7 @@ from typing import Callable, Dict, IO, List, Optional, Sequence, Set, Tuple
 
 from stimulus.errors import CodeGenerationError, NoSuchTypeError
 from stimulus.model.functions import FunctionDescriptor
-from stimulus.model.parameters import ParamSpec
+from stimulus.model.parameters import ParamMode, ParamSpec
 from stimulus.model.types import TypeDescriptor
 
 from .base import SingleBlockCodeGenerator
@@ -60,7 +60,10 @@ def _get_ctypes_arg_type_from_c_arg_type(c_type: str):
 
 
 def _get_python_type_from_type_spec(type_spec: TypeDescriptor) -> Optional[str]:
-    return type_spec.get("PY_TYPE")
+    if "PY_TYPE" in type_spec:
+        return type_spec.get("PY_TYPE")
+    else:
+        raise CodeGenerationError(f"no Python type known for type: {type_spec.name}")
 
 
 class PythonCTypesCodeGenerator(SingleBlockCodeGenerator):
@@ -204,18 +207,22 @@ class ArgInfo:
         c_name = f"c_{spec.name}"
 
         py_type = _get_python_type_from_type_spec(type)
-        if py_type is None:
-            raise CodeGenerationError(f"no Python type known for type: {type.name}")
-
         result = cls(
             param_spec=spec,
             type_spec=type,
             c_name=c_name,
             py_name=py_name,
-            py_type=py_type,
+            py_type=py_type or "None",
         )
 
-        if not spec.is_deprecated:
+        if py_type is None:
+            # Python type of argument is explicitly declared to be "null", so
+            # we need to exclude it from the argument list no matter what
+            result.appears_in_argument_list = False
+        elif spec.is_deprecated:
+            # Deprecated args do not appear in the argument list either
+            result.appears_in_argument_list = False
+        else:
             # IN and INOUT arguments will appear in the Python call signature;
             # pure OUT arguments will not
             result.appears_in_argument_list = spec.is_input
@@ -233,9 +240,14 @@ class ArgInfo:
         return self.param_spec.name
 
     def get_input_conversion(self) -> Optional[str]:
+        if not self.appears_in_argument_list:
+            default = "%C% = None"
+        elif self.param_spec.is_input:
+            default = "%C% = %I%"
+        else:
+            default = ""
         template = self.type_spec.get_input_conversion_template_for(
-            self.param_spec.mode,
-            default="%C% = %I%" if self.param_spec.is_input else "",
+            self.param_spec.mode, default=default
         )
         if not template:
             if not self.param_spec.is_input:
@@ -249,9 +261,12 @@ class ArgInfo:
             return template.replace("%I%", self.py_name).replace("%C%", self.c_name)
 
     def get_output_conversion(self) -> Optional[str]:
+        if self.param_spec.mode == ParamMode.OUT:
+            default = "%I% = %C%.value"
+        else:
+            default = ""
         template = self.type_spec.get_output_conversion_template_for(
-            self.param_spec.mode,
-            default="%I% = %C%.value" if self.param_spec.is_output else "",
+            self.param_spec.mode, default=default
         )
         if not template:
             return None
@@ -420,7 +435,8 @@ class PythonCTypesTypedWrapperCodeGenerator(SingleBlockCodeGenerator):
             py_type = _get_python_type_from_type_spec(arg_spec)
             if py_type is None:
                 raise CodeGenerationError(
-                    f"no Python type known for type: {arg_spec.name}"
+                    f"no Python type known for type {arg_spec.name!r} and "
+                    f"it needs to be used as a return value"
                 )
             arg_type_strs.append(py_type)
 
