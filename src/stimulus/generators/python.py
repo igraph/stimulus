@@ -230,6 +230,12 @@ class ArgInfo:
         # Map default value to Python
         if spec.default is not None:
             result.default_value = type.translate_default_value(spec.default)
+            if (
+                type.is_enum
+                and result.default_value == spec.default
+                and py_type is not None
+            ):
+                result.default_value = py_type + "." + result.default_value
         else:
             result.default_value = None
 
