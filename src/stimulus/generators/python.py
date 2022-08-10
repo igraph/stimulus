@@ -59,8 +59,12 @@ def _get_ctypes_arg_type_from_c_arg_type(c_type: str):
     return c_type
 
 
-def _get_python_type_from_type_spec(type_spec: TypeDescriptor) -> Optional[str]:
-    if "PY_TYPE" in type_spec:
+def _get_python_type_from_type_spec(
+    type_spec: TypeDescriptor, out: bool = False
+) -> Optional[str]:
+    if out and "PY_RETURN_TYPE" in type_spec:
+        return type_spec.get("PY_RETURN_TYPE")
+    elif "PY_TYPE" in type_spec:
         return type_spec.get("PY_TYPE")
     else:
         raise CodeGenerationError(f"no Python type known for type: {type_spec.name}")
@@ -438,7 +442,7 @@ class PythonCTypesTypedWrapperCodeGenerator(SingleBlockCodeGenerator):
 
         arg_type_strs = []
         for arg_spec in arg_types:
-            py_type = _get_python_type_from_type_spec(arg_spec)
+            py_type = _get_python_type_from_type_spec(arg_spec, out=True)
             if py_type is None:
                 raise CodeGenerationError(
                     f"no Python type known for type {arg_spec.name!r} and "
