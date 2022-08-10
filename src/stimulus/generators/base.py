@@ -122,7 +122,8 @@ class CodeGeneratorBase(CodeGenerator):
         # extend it as by prepending the language to the CodeGenerator class
         # name
         self.name = type(self).__name__
-        self.name = self.name[0 : len(self.name) - len("CodeGenerator")]
+        if self.name.endswith("CodeGenerator"):
+            self.name = self.name[0 : len(self.name) - len("CodeGenerator")]
 
         self.log = _DummyLogger()  # type: ignore
 
