@@ -249,7 +249,7 @@ class ArgInfo:
     def name(self) -> str:
         return self.param_spec.name
 
-    def get_input_conversion(self) -> Optional[str]:
+    def get_input_conversion(self, args: Dict[str, "ArgInfo"]) -> Optional[str]:
         if not self.appears_in_argument_list:
             default = "%C% = None"
         elif self.param_spec.is_input:
@@ -267,10 +267,9 @@ class ArgInfo:
             else:
                 return None
         else:
-            # TODO(ntamas): handle DEPS
-            return template.replace("%I%", self.py_name).replace("%C%", self.c_name)
+            return self._apply_replacements(template, args)
 
-    def get_output_conversion(self) -> Optional[str]:
+    def get_output_conversion(self, args: Dict[str, "ArgInfo"]) -> Optional[str]:
         if self.param_spec.mode == ParamMode.OUT:
             default = "%I% = %C%.value"
         else:
@@ -281,11 +280,7 @@ class ArgInfo:
         if not template:
             return None
         else:
-            # TODO(ntamas): handle DEPS
-            return (
-                template.replace("%I%", self.py_name).replace("%C%", self.c_name)
-                or None
-            )
+            return self._apply_replacements(template, args)
 
     def get_python_declaration(self) -> str:
         """Returns the declaration of this argument for the Python function header."""
@@ -294,6 +289,19 @@ class ArgInfo:
             if self.default_value is None
             else f"{self.py_name}: {self.py_type} = {self.default_value}"
         )
+
+    def _apply_replacements(self, value: str, args: Dict[str, "ArgInfo"]) -> str:
+        value = value.replace("%I%", self.py_name)
+        value = value.replace("%C%", self.c_name)
+        for index, dep in enumerate(self.param_spec.dependencies, 1):
+            arg = args.get(dep)
+            if arg is None:
+                raise CodeGenerationError(
+                    f"Unknown dependency for parameter {self.py_name!r}: {dep!r}"
+                )
+            value = value.replace(f"%I{index}%", arg.py_name)
+            value = value.replace(f"%C{index}%", arg.c_name)
+        return value
 
 
 class PythonCTypesTypedWrapperCodeGenerator(SingleBlockCodeGenerator):
@@ -349,7 +357,7 @@ class PythonCTypesTypedWrapperCodeGenerator(SingleBlockCodeGenerator):
 
         # Add input conversion calls
         convs = [
-            args[param_spec.name].get_input_conversion()
+            args[param_spec.name].get_input_conversion(args)
             for param_spec in spec.iter_parameters()
         ]
         convs = [conv for conv in convs if conv]
@@ -371,7 +379,7 @@ class PythonCTypesTypedWrapperCodeGenerator(SingleBlockCodeGenerator):
 
         # Add output conversion calls
         convs = [
-            args[param_spec.name].get_output_conversion()
+            args[param_spec.name].get_output_conversion(args)
             for param_spec in spec.iter_parameters()
         ]
         convs = [conv for conv in convs if conv]
