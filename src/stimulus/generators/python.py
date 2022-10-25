@@ -13,7 +13,7 @@ from .base import SingleBlockCodeGenerator
 from .utils import create_indentation_function, remove_prefix
 
 
-indent = create_indentation_function("  ")
+indent = create_indentation_function("    ")
 
 
 @lru_cache(maxsize=128)
@@ -211,6 +211,9 @@ class ArgInfo:
         c_name = f"c_{spec.name}"
 
         py_type = _get_python_type_from_type_spec(type)
+        if spec.is_optional and py_type and not py_type.startswith("Optional["):
+            py_type = f"Optional[{py_type}]"
+
         result = cls(
             param_spec=spec,
             type_spec=type,
@@ -234,6 +237,13 @@ class ArgInfo:
         # Map default value to Python
         if spec.default is not None:
             result.default_value = type.translate_default_value(spec.default)
+
+            # Map "NULL" to "None"
+            if result.default_value == "NULL":
+                result.default_value = "None"
+
+            # For enums, prefix the name of the default value with the name
+            # of the enum
             if (
                 type.is_enum
                 and result.default_value == spec.default
@@ -267,6 +277,12 @@ class ArgInfo:
             else:
                 return None
         else:
+            if (
+                self.param_spec.is_input
+                and self.param_spec.is_optional
+                and self.default_value in (None, "None")
+            ):
+                template = f"{template} if %I% is not None else None"
             return self._apply_replacements(template, args)
 
     def get_output_conversion(self, args: Dict[str, "ArgInfo"]) -> Optional[str]:
@@ -286,7 +302,7 @@ class ArgInfo:
         """Returns the declaration of this argument for the Python function header."""
         return (
             f"{self.py_name}: {self.py_type}"
-            if self.default_value is None
+            if self.default_value is None and not self.param_spec.is_optional
             else f"{self.py_name}: {self.py_type} = {self.default_value}"
         )
 
@@ -329,27 +345,26 @@ class PythonCTypesTypedWrapperCodeGenerator(SingleBlockCodeGenerator):
         # Construct Python arguments
         args = self._process_argument_list(spec)
 
-        # Check whether any default argument precedes non-default arguments.
-        # TODO(ntamas): reorder arguments if this happens?
-        has_default = False
-        for arg_spec in spec.iter_reordered_parameters():
-            if arg_spec.is_deprecated or not arg_spec.is_input:
-                continue
-
-            if arg_spec.default is None:
-                if has_default:
-                    raise CodeGenerationError(
-                        f"at least one default argument precedes non-default argument {arg_spec.name}"
-                    )
-            else:
-                has_default = True
+        # Decide in which order the arguments should appear on the Python side.
+        # Arguments with no default values must appear earlier even if they are
+        # declared later on the C side. Python's sort is stable so the code
+        # below will keep the order when possible.
+        arg_specs = [
+            arg_spec
+            for arg_spec in spec.iter_reordered_parameters()
+            if args[arg_spec.name].appears_in_argument_list
+        ]
+        arg_specs = sorted(
+            arg_specs,
+            key=lambda arg_spec: 1
+            if arg_spec.default is None and not arg_spec.is_optional
+            else 2,
+        )
 
         # Print function header
         py_return_type, return_arg_names = self._get_return_type_and_args(spec)
         py_args = ", ".join(
-            args[arg_spec.name].get_python_declaration()
-            for arg_spec in spec.iter_reordered_parameters()
-            if args[arg_spec.name].appears_in_argument_list
+            args[arg_spec.name].get_python_declaration() for arg_spec in arg_specs
         )
         write("")
         write(f"def {py_name}({py_args}) -> {py_return_type}:")
