@@ -259,6 +259,13 @@ class ArgInfo:
     def name(self) -> str:
         return self.param_spec.name
 
+    def get_argument_for_function_call(self, args: Dict[str, "ArgInfo"]) -> str:
+        template = self.type_spec.get("CALL")
+        if template:
+            return self._apply_replacements(template, args)
+        else:
+            return self.c_name
+
     def get_input_conversion(self, args: Dict[str, "ArgInfo"]) -> Optional[str]:
         if not self.appears_in_argument_list:
             default = "%C% = None"
@@ -385,7 +392,8 @@ class PythonCTypesTypedWrapperCodeGenerator(SingleBlockCodeGenerator):
         write("    # Call wrapped function")
         needs_return_value_from_c_call = "" in return_arg_names
         c_args = ", ".join(
-            args[arg_spec.name].c_name for arg_spec in spec.iter_parameters()
+            args[arg_spec.name].get_argument_for_function_call(args)
+            for arg_spec in spec.iter_parameters()
         )
         c_call = f"{name}({c_args})"
         if needs_return_value_from_c_call:
