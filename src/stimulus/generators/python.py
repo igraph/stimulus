@@ -307,11 +307,12 @@ class ArgInfo:
 
     def get_python_declaration(self) -> str:
         """Returns the declaration of this argument for the Python function header."""
-        return (
-            f"{self.py_name}: {self.py_type}"
-            if self.default_value is None and not self.param_spec.is_optional
-            else f"{self.py_name}: {self.py_type} = {self.default_value}"
-        )
+        if self.default_value is None and not self.param_spec.is_optional:
+            return f"{self.py_name}: {self.py_type}"
+        elif self.default_value == "None" and not self.py_type.startswith("Optional["):
+            return f"{self.py_name}: Optional[{self.py_type}] = None"
+        else:
+            return f"{self.py_name}: {self.py_type} = {self.default_value}"
 
     def _apply_replacements(self, value: str, args: Dict[str, "ArgInfo"]) -> str:
         value = value.replace("%I%", self.py_name)
