@@ -370,7 +370,9 @@ class PythonCTypesTypedWrapperCodeGenerator(SingleBlockCodeGenerator):
         )
 
         # Print function header
-        py_return_type, return_arg_names = self._get_return_type_and_args(spec)
+        py_return_type, return_arg_names, return_types = self._get_return_type_and_args(
+            spec
+        )
         py_args = ", ".join(
             args[arg_spec.name].get_python_declaration() for arg_spec in arg_specs
         )
@@ -414,17 +416,36 @@ class PythonCTypesTypedWrapperCodeGenerator(SingleBlockCodeGenerator):
                 write("    " + conv)
 
         if return_arg_names:
+            return_var = "c__result"
+
+            try:
+                idx = return_arg_names.index("")
+            except ValueError:
+                tmpl = ""
+                idx = -1
+            else:
+                tmpl = return_types[idx].get_output_conversion_template_for(
+                    ParamMode.OUT
+                )
+
+            if tmpl:
+                conv = tmpl.replace("%I%", "py__result").replace("%C%", "c__result")
+                return_var = "py__result"
+                write("")
+                write("    # Prepare return value")
+                write("    " + conv)
+
             write("")
             write("    # Construct return value")
             if len(return_arg_names) == 1:
                 if needs_return_value_from_c_call:
-                    var_name = "c__result"
+                    var_name = return_var
                 else:
                     var_name = args[return_arg_names[0]].py_name
                 write(f"    return {var_name}")
             else:
                 joint_parts = ", ".join(
-                    args[name].py_name if name else "c__result"
+                    args[name].py_name if name else return_var
                     for name in return_arg_names
                 )
                 write(f"    return {joint_parts}")
@@ -434,9 +455,10 @@ class PythonCTypesTypedWrapperCodeGenerator(SingleBlockCodeGenerator):
 
     def _get_return_type_and_args(
         self, spec: FunctionDescriptor
-    ) -> Tuple[str, List[str]]:
-        """Returns the return type of the given function and the names of the
-        C arguments from which the output arguments are created.
+    ) -> Tuple[str, List[str], List[TypeDescriptor]]:
+        """Returns the return type of the given function, the names of the
+        C arguments from which the output arguments are created and the
+        corresponding type descriptors.
 
         An empty string in the returned argument list means that the return
         value of the C function should be converted into the return value of
@@ -489,7 +511,7 @@ class PythonCTypesTypedWrapperCodeGenerator(SingleBlockCodeGenerator):
         else:
             output_type = "Tuple[" + ", ".join(arg_type_strs) + "]"
 
-        return output_type, arg_names
+        return output_type, arg_names, arg_types
 
     def _process_argument_list(self, spec: FunctionDescriptor) -> Dict[str, ArgInfo]:
         return {
