@@ -40,10 +40,6 @@ class RRCodeGenerator(SingleBlockCodeGenerator):
         # Derive name of R function
         name = spec.get_name_in_generated_code("R")
 
-        ## Roxygen to export the function
-        if not spec.is_internal:
-            out.write("#' @export\n")
-
         ## Header
         ## do_par handles the translation of a single argument in the
         ## header. Pretty simple, the only difficulty is that we
@@ -73,7 +69,7 @@ class RRCodeGenerator(SingleBlockCodeGenerator):
         )
 
         out.write(name)
-        out.write(" <- function(")
+        out.write("_impl <- function(")
 
         def handle_input_argument(param: ParamSpec) -> str:
             tname = param.type
