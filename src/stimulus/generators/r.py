@@ -163,9 +163,9 @@ class RRCodeGenerator(SingleBlockCodeGenerator):
         ## completely ignored, so giving an empty CALL field is
         ## different than not giving it at all.
 
-        out.write("  on.exit( .Call(C_R_igraph_finalizer) )\n")
+        out.write("  on.exit( .Call(R_igraph_finalizer) )\n")
         out.write("  # Function call\n")
-        out.write("  res <- .Call(C_R_" + function + ", ")
+        out.write("  res <- .Call(R_" + function + ", ")
 
         parts = []
         for param in spec.iter_input_parameters():
@@ -464,9 +464,11 @@ class RCCodeGenerator(SingleBlockCodeGenerator):
                 calls.append(call)
 
         calls = ", ".join(calls)
-        res = f"  {desc.name}({calls});\n"
-        if not desc.has_output_parameter:
-            res = f"  c_result={res}"
+        res = ""
+        if desc.has_output_parameter:
+            res = f"  IGRAPH_R_CHECK({desc.name}({calls}));\n"
+        else:
+            res = f"  c_result={desc.name}({calls});\n"
 
         return res
 
@@ -531,7 +533,7 @@ class RCCodeGenerator(SingleBlockCodeGenerator):
                 for index, param in enumerate(retpars)
             ]
             names = [
-                f'  SET_STRING_ELT(r_names, {index}, CREATE_STRING_VECTOR("{param.name_in_higher_level_interface}"));'
+                f'  SET_STRING_ELT(r_names, {index}, Rf_mkChar("{param.name_in_higher_level_interface}"));'
                 for index, param in enumerate(retpars)
             ]
             ret = "\n".join(
