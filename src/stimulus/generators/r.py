@@ -465,10 +465,17 @@ class RCCodeGenerator(SingleBlockCodeGenerator):
 
         calls = ", ".join(calls)
         res = ""
-        if desc.has_output_parameter:
+        # No return type means - return type is igraph_error_t
+        if not desc.return_type:
             res = f"  IGRAPH_R_CHECK({desc.name}({calls}));\n"
         else:
-            res = f"  c_result={desc.name}({calls});\n"
+            return_type = self.get_type_descriptor(desc.return_type)
+            if return_type.name == "ERROR":
+                res = f"  IGRAPH_R_CHECK({desc.name}({calls}));\n"
+            elif return_type.name == "VOID":
+                res = f"  {desc.name}({calls});\n"
+            else:
+                res = f"  c_result={desc.name}({calls});\n"
 
         return res
 
