@@ -70,6 +70,15 @@ def _get_python_type_from_type_spec(
         raise CodeGenerationError(f"no Python type known for type: {type_spec.name}")
 
 
+def _format_docstring(value: str) -> str:
+    """Formats a Python docstring."""
+    value = indent(value.strip()).strip()
+    if "\n" not in value:
+        return f'    """{value}"""'
+    else:
+        return f'    """{value}\n    """'
+
+
 class PythonCTypesCodeGenerator(SingleBlockCodeGenerator):
     """Code generator that generates argument and return value specifications
     of each igraph function using the Python ctypes module.
@@ -378,7 +387,12 @@ class PythonCTypesTypedWrapperCodeGenerator(SingleBlockCodeGenerator):
         )
         write("")
         write(f"def {py_name}({py_args}) -> {py_return_type}:")
-        write(f'    """Type-annotated wrapper for ``{spec.name}``."""')
+
+        # Print documentation string (if any)
+        docstring = self.docstring_provider(spec.name) or (
+            f"Type-annotated wrapper for ``{spec.name}``."
+        )
+        write(_format_docstring(docstring))
 
         # Add input conversion calls
         convs = [

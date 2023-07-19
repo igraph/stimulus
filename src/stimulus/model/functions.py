@@ -12,9 +12,10 @@ from typing import (
     Tuple,
 )
 
+from stimulus.utils import camelcase
+
 from .base import DescriptorMixin
 from .parameters import ParamSpec
-from .utils import camelcase
 
 __all__ = ("FunctionDescriptor",)
 
