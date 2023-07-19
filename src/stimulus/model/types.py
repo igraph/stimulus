@@ -138,7 +138,7 @@ class TypeDescriptor(Mapping[str, Any], DescriptorMixin):
             except KeyError:
                 raise NoSuchTypeError(
                     f"{self.name} does not specify its corresponding C type in mode {mode_str}"
-                )
+                ) from None
             if isinstance(value, str) or value is None:
                 return value or None
             else:
@@ -264,4 +264,4 @@ class TypeDescriptor(Mapping[str, Any], DescriptorMixin):
         always_merger.merge(self._obj, obj)
 
         it = self._parse_as_comma_separated_list("FLAGS")
-        self.flags |= set(flag.lower() for flag in it)
+        self.flags |= {flag.lower() for flag in it}

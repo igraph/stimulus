@@ -489,7 +489,7 @@ class PythonCTypesTypedWrapperCodeGenerator(SingleBlockCodeGenerator):
             arg_names.append("")
             arg_types.append(return_type)
 
-        for index, parameter in enumerate(spec.iter_parameters()):
+        for parameter in spec.iter_parameters():
             if not parameter.is_deprecated and not parameter.is_input:
                 arg_names.append(parameter.name)
                 arg_types.append(self.get_type_descriptor(parameter.type))

@@ -211,7 +211,7 @@ class FunctionDescriptor(Mapping[str, Any], DescriptorMixin):
         self.ignored_by |= set(it)
 
         it = self._parse_as_comma_separated_list("FLAGS")
-        self.flags |= set(flag.lower() for flag in it)
+        self.flags |= {flag.lower() for flag in it}
 
         is_internal = self._parse_as_boolean("INTERNAL")
         if is_internal is not None:

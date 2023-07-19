@@ -18,6 +18,11 @@ deepmerge = "^0.3.0"
 [tool.poetry.scripts]
 stimulus = 'stimulus.__main__:main'
 
+[tool.ruff]
+ignore = ["B905", "C901", "E402", "E501"]
+line-length = 80
+select = ["B", "C", "E", "F", "W"]
+
 [build-system]
 requires = ["poetry-core>=1.0.0"]
 build-backend = "poetry.core.masonry.api"
