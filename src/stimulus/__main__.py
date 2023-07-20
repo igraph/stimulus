@@ -8,6 +8,7 @@ from .generators import (
     get_code_generator_factory_for_language,
     is_valid_language,
 )
+from .providers.docstrings import FolderBasedDocstringProvider
 from .version import __version__
 
 
@@ -63,6 +64,14 @@ def create_argument_parser() -> ArgumentParser:
         default=[],
     )
 
+    parser.add_argument(
+        "-D",
+        "--docstring-dir",
+        metavar="DIR",
+        help="use docstrings from files stored in DIR",
+        default=None,
+    )
+
     return parser
 
 
@@ -79,6 +88,7 @@ def main():
     inputs = options.input
     languages = options.language
     outputs = options.output
+    docstring_dir = options.docstring_dir
 
     # Parameter checks
     # Note: the lists might be empty, but languages and outputs must
@@ -119,6 +129,10 @@ def main():
             generator.load_function_descriptors_from_file(path)
         for path in type_files:
             generator.load_type_descriptors_from_file(path)
+        if docstring_dir:
+            generator.use_docstring_provider(
+                FolderBasedDocstringProvider(docstring_dir)
+            )
 
         if output == "-":
             generator.generate(inputs, sys.stdout)

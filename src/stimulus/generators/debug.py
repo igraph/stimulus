@@ -80,7 +80,7 @@ class FunctionSpecificationValidator(SingleBlockCodeGenerator):
 
         # Determine parameter declarations in C
         func_desc = self.get_function_descriptor(name)
-        param_names = set(param.name for param in func_desc.iter_parameters())
+        param_names = {param.name for param in func_desc.iter_parameters()}
         for param in func_desc.iter_parameters():
             if param.is_deprecated:
                 # Ignore deprecated parameters; they are only used in the R

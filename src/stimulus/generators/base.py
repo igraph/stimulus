@@ -19,7 +19,8 @@ from typing import (
 
 from stimulus.errors import CodeGenerationError, NoSuchTypeError
 from stimulus.legacy.parser import Parser as LegacyParser
-from stimulus.model import FunctionDescriptor, TypeDescriptor
+from stimulus.model import DocstringProvider, FunctionDescriptor, TypeDescriptor
+from stimulus.utils import constant
 
 __all__ = (
     "BlockBasedCodeGenerator",
@@ -88,6 +89,13 @@ class CodeGenerator(metaclass=ABCMeta):
         raise NotImplementedError
 
     @abstractmethod
+    def use_docstring_provider(self, provider: DocstringProvider) -> None:
+        """Instructs the code generator to use the given object to retrieve
+        docstrings for the functions for which it generates code.
+        """
+        raise NotImplementedError
+
+    @abstractmethod
     def use_logger(self, log: Logger) -> None:
         """Instructs the code generator to log any issues that it finds during
         code generation to the given logger.
@@ -110,6 +118,7 @@ class CodeGeneratorBase(CodeGenerator):
     log: Logger
     name: str
 
+    _docstring_provider: DocstringProvider
     _function_descriptors: Dict[str, FunctionDescriptor]
     _type_descriptors: Dict[str, TypeDescriptor]
 
@@ -127,6 +136,7 @@ class CodeGeneratorBase(CodeGenerator):
 
         self.log = _DummyLogger()  # type: ignore
 
+        self._docstring_provider = constant(None)
         self._function_descriptors = OrderedDict()
         self._type_descriptors = {}
 
@@ -192,6 +202,9 @@ class CodeGeneratorBase(CodeGenerator):
             descriptor = self.get_or_create_type_descriptor(name)
             if spec is not None:
                 descriptor.update_from(spec)
+
+    def use_docstring_provider(self, provider: DocstringProvider) -> None:
+        self.docstring_provider = provider
 
     def use_logger(self, log: Logger) -> None:
         self.log = log
