@@ -28,6 +28,15 @@ def get_r_parameter_name(param: ParamSpec) -> str:
         result = result.replace("_", ".")
     return result
 
+def optional_wrapper(conv: str) -> str:
+    # Workaround for legacy types in R which have Rf_isNull
+    # TODO: refactoring types in R
+    if 'Rf_isNull' in conv:
+        return conv
+    result = ""
+    optional_teamplate = ["if (!Rf_isNull(%I%)) {\n", indent(conv), "\n}"]
+    return result.join(optional_teamplate)
+
 
 class RRCodeGenerator(SingleBlockCodeGenerator):
     def generate_function(self, function: str, out: IO[str]) -> None:
@@ -424,6 +433,9 @@ class RCCodeGenerator(SingleBlockCodeGenerator):
             # Get the template from the type specification
             inconv = t.get_input_conversion_template_for(param.mode)
 
+            if param.is_optional and param.is_input and inconv:
+                inconv = optional_wrapper(inconv)
+
             if not inconv and param.is_input and (t.is_enum or t.is_bitfield):
                 # If the parameter is an input argument and its type is an
                 # enum, we can provide a default conversion: we just cast its
@@ -460,6 +472,8 @@ class RCCodeGenerator(SingleBlockCodeGenerator):
                 call = type
 
             if call:
+                if param.is_optional and param.is_input and 'Rf_isNull' not in call and call != '0':
+                    call = f'(Rf_isNull(%I%) ? 0 : {call})'
                 call = call.replace("%C%", f"c_{param.name}").replace("%I%", param.name)
                 calls.append(call)
 
@@ -506,7 +520,12 @@ class RCCodeGenerator(SingleBlockCodeGenerator):
         def do_par(param: ParamSpec) -> str:
             cname = f"c_{param.name}"
             t = self.get_type_descriptor(param.type)
-            outconv = indent(t.get_output_conversion_template_for(param.mode))
+            outconv = t.get_output_conversion_template_for(param.mode)
+
+            if param.is_optional and param.is_input and outconv:
+                outconv = optional_wrapper(outconv)
+
+            outconv = indent(outconv)
             for i, dep in enumerate(param.dependencies):
                 outconv = outconv.replace("%C" + str(i + 1) + "%", "c_" + dep)
 
