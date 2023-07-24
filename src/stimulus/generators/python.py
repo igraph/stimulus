@@ -523,7 +523,7 @@ class PythonCTypesTypedWrapperCodeGenerator(SingleBlockCodeGenerator):
         elif len(arg_type_strs) == 1:
             output_type = arg_type_strs[0]
         else:
-            output_type = "Tuple[" + ", ".join(arg_type_strs) + "]"
+            output_type = "tuple[" + ", ".join(arg_type_strs) + "]"
 
         return output_type, arg_names, arg_types
 
