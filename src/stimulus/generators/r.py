@@ -21,6 +21,12 @@ from .utils import create_indentation_function
 
 indent = create_indentation_function("  ")
 
+init_functions = {
+    "igraph_vector_t": "IGRAPH_R_CHECK(igraph_vector_init(&%C%, 0));\nIGRAPH_FINALLY(igraph_vector_destroy, &%C%);",
+    "igraph_vector_int_t": "IGRAPH_R_CHECK(igraph_vector_int_init(&%C%, 0));\nIGRAPH_FINALLY(igraph_vector_int_destroy, &%C%);",
+    "igraph_vector_bool_t": "IGRAPH_R_CHECK(igraph_vector_bool_init(&%C%, 0));\nIGRAPH_FINALLY(igraph_vector_bool_destroy, &%C%);",
+    "igraph_matrix_t": "IGRAPH_R_CHECK(igraph_matrix_init(&%C%, 0, 0));\nIGRAPH_FINALLY(igraph_matrix_destroy, &%C%);"
+}
 
 def get_r_parameter_name(param: ParamSpec) -> str:
     result = param.name_in_higher_level_interface
@@ -28,13 +34,17 @@ def get_r_parameter_name(param: ParamSpec) -> str:
         result = result.replace("_", ".")
     return result
 
-def optional_wrapper(conv: str) -> str:
+def optional_wrapper(conv: str, c_type: str) -> str:
     # Workaround for legacy types in R which have Rf_isNull
     # TODO: refactoring types in R
     if 'Rf_isNull' in conv:
         return conv
     result = ""
     optional_teamplate = ["if (!Rf_isNull(%I%)) {\n", indent(conv), "\n}"]
+
+    if c_type in init_functions:
+        optional_teamplate += [" else {\n", indent(init_functions[c_type]), "\n}"]
+
     return result.join(optional_teamplate)
 
 
@@ -432,17 +442,17 @@ class RCCodeGenerator(SingleBlockCodeGenerator):
 
             # Get the template from the type specification
             inconv = t.get_input_conversion_template_for(param.mode)
-
-            if param.is_optional and param.is_input and inconv:
-                inconv = optional_wrapper(inconv)
+            c_type = t.get_c_type(mode=param.mode)
 
             if not inconv and param.is_input and (t.is_enum or t.is_bitfield):
                 # If the parameter is an input argument and its type is an
                 # enum, we can provide a default conversion: we just cast its
                 # numeric value to the right type
-                c_type = t.get_c_type(mode=param.mode)
                 if c_type is not None:
                     inconv = f"%C% = ({c_type}) Rf_asInteger(%I%);"
+
+            if param.is_optional and param.is_input and inconv:
+                inconv = optional_wrapper(inconv, c_type)
 
             # Replace the tokens in the type specification
             for i, dep in enumerate(param.dependencies):
@@ -464,7 +474,9 @@ class RCCodeGenerator(SingleBlockCodeGenerator):
 
         calls = []
         for param in desc.iter_parameters():
-            type = self.get_type_descriptor(param.type).get("CALL", f"c_{param.name}")
+            t = self.get_type_descriptor(param.type)
+            type = t.get("CALL", f"c_{param.name}")
+            c_type = t.get_c_type(mode=param.mode)
 
             if isinstance(type, dict):
                 call = type.get(param.mode_str, "")
@@ -472,7 +484,7 @@ class RCCodeGenerator(SingleBlockCodeGenerator):
                 call = type
 
             if call:
-                if param.is_optional and param.is_input and 'Rf_isNull' not in call and call != '0':
+                if c_type not in init_functions and param.is_optional and param.is_input and call != '0':
                     call = f'(Rf_isNull(%I%) ? 0 : {call})'
                 call = call.replace("%C%", f"c_{param.name}").replace("%I%", param.name)
                 calls.append(call)
@@ -521,9 +533,6 @@ class RCCodeGenerator(SingleBlockCodeGenerator):
             cname = f"c_{param.name}"
             t = self.get_type_descriptor(param.type)
             outconv = t.get_output_conversion_template_for(param.mode)
-
-            if param.is_optional and param.is_input and outconv:
-                outconv = optional_wrapper(outconv)
 
             outconv = indent(outconv)
             for i, dep in enumerate(param.dependencies):
