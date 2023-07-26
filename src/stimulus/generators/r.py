@@ -34,7 +34,7 @@ def get_r_parameter_name(param: ParamSpec) -> str:
         result = result.replace("_", ".")
     return result
 
-def optional_wrapper(conv: str, c_type: str) -> str:
+def optional_wrapper_c(conv: str, c_type: str) -> str:
     # Workaround for legacy types in R which have Rf_isNull
     # TODO: refactoring types in R
     if 'Rf_isNull' in conv:
@@ -46,6 +46,12 @@ def optional_wrapper(conv: str, c_type: str) -> str:
         optional_teamplate += [" else {\n", indent(init_functions[c_type]), "\n}"]
 
     return result.join(optional_teamplate)
+
+def optional_wrapper_r(conv: str) -> str:
+    if 'is.null' in conv:
+        return conv
+
+    return f"if (!is.null(%I%)) {conv}"
 
 
 class RRCodeGenerator(SingleBlockCodeGenerator):
@@ -104,7 +110,7 @@ class RRCodeGenerator(SingleBlockCodeGenerator):
             if param.default is not None:
                 default = type_desc.translate_default_value(param.default)
             else:
-                default = ""
+                default = "NULL" if param.is_optional and header else ""
 
             if default:
                 header = f"{header}={default}"
@@ -154,10 +160,13 @@ class RRCodeGenerator(SingleBlockCodeGenerator):
         def handle_argument_check(param: ParamSpec) -> str:
             tname = param.type
             t = self.get_type_descriptor(tname)
-            res = indent(t.get_input_conversion_template_for(param.mode))
+            res = t.get_input_conversion_template_for(param.mode)
+
+            if param.is_optional and param.is_input and res:
+                res = optional_wrapper_r(res)
 
             # Replace template placeholders
-            res = res.replace("%I%", get_r_parameter_name(param))
+            res = indent(res).replace("%I%", get_r_parameter_name(param))
             for i, dep in enumerate(param.dependencies):
                 res = res.replace("%I" + str(i + 1) + "%", dep)
 
@@ -452,7 +461,7 @@ class RCCodeGenerator(SingleBlockCodeGenerator):
                     inconv = f"%C% = ({c_type}) Rf_asInteger(%I%);"
 
             if param.is_optional and param.is_input and inconv:
-                inconv = optional_wrapper(inconv, c_type)
+                inconv = optional_wrapper_c(inconv, c_type)
 
             # Replace the tokens in the type specification
             for i, dep in enumerate(param.dependencies):
