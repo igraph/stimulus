@@ -484,7 +484,7 @@ class RCCodeGenerator(SingleBlockCodeGenerator):
                 call = type
 
             if call:
-                if c_type not in init_functions and param.is_optional and param.is_input and call != '0':
+                if param.is_optional and param.is_input and not param.is_output and call != '0':
                     call = f'(Rf_isNull(%I%) ? 0 : {call})'
                 call = call.replace("%C%", f"c_{param.name}").replace("%I%", param.name)
                 calls.append(call)
