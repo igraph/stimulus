@@ -1,8 +1,9 @@
 """Code generators for an experimental generated Python interface of igraph."""
 
+from contextlib import contextmanager, ExitStack
 from dataclasses import dataclass
 from functools import lru_cache
-from typing import Callable, Dict, IO, List, Optional, Sequence, Set, Tuple
+from typing import Callable, Dict, IO, Iterator, List, Optional, Sequence, Set, Tuple
 
 from stimulus.errors import CodeGenerationError, NoSuchTypeError
 from stimulus.model.functions import FunctionDescriptor
@@ -77,6 +78,44 @@ def _format_docstring(value: str) -> str:
         return f'    """{value}"""'
     else:
         return f'    """{value}\n    """'
+
+
+class IndentedWriter:
+    """Helper class to dynamically manage indentation levels while creating the
+    body of a function.
+    """
+
+    _indentation: str = "    "
+    """The indentation prefix for each line for a single indentation level."""
+
+    _level: int = 0
+    """The current indentation level."""
+
+    _writer: Callable[[str], None]
+    """The writer function to wrap."""
+
+    def __init__(self, writer: Callable[[str], None], *, level: int = 0):
+        """Constructor."""
+        self._writer = writer
+        self._level = level
+
+    @contextmanager
+    def indent(self) -> Iterator[None]:
+        """Context manager that increases the current indentation level
+        while the execution is in the context.
+        """
+        self._level += 1
+        try:
+            yield
+        finally:
+            self._level -= 1
+
+    def write(self, line: str) -> None:
+        if line:
+            line = (self._indentation * self._level) + line
+        self._writer(line)
+
+    __call__ = write
 
 
 class PythonCTypesCodeGenerator(SingleBlockCodeGenerator):
@@ -323,9 +362,19 @@ class ArgInfo:
         else:
             return f"{self.py_name}: {self.py_type} = {self.default_value}"
 
+    @property
+    def needs_exit_stack(self) -> bool:
+        """Returns whether this argument needs an exit stack for properly
+        handling its input and/or output conversions.
+        """
+        return self.type_spec.has_flag("stack")
+
     def _apply_replacements(self, value: str, args: Dict[str, "ArgInfo"]) -> str:
         value = value.replace("%I%", self.py_name)
         value = value.replace("%C%", self.c_name)
+        if self.needs_exit_stack:
+            value = value.replace("%S%", "py__stack")
+
         for index, dep in enumerate(self.param_spec.dependencies, 1):
             arg = args.get(dep)
             if arg is None:
@@ -334,6 +383,7 @@ class ArgInfo:
                 )
             value = value.replace(f"%I{index}%", arg.py_name)
             value = value.replace(f"%C{index}%", arg.c_name)
+
         return value
 
 
@@ -350,6 +400,9 @@ class PythonCTypesTypedWrapperCodeGenerator(SingleBlockCodeGenerator):
             write(f"\n# {name}: {ex}\n")
 
     def _generate_function(self, name: str, write: Callable[[str], None]) -> None:
+        writer = IndentedWriter(write)
+        write = writer.write
+
         # Check types
         self.check_types_of_function(name)
 
@@ -394,75 +447,91 @@ class PythonCTypesTypedWrapperCodeGenerator(SingleBlockCodeGenerator):
         )
         write(_format_docstring(docstring))
 
-        # Add input conversion calls
-        convs = [
-            args[param_spec.name].get_input_conversion(args)
+        # Check whether we will need an exit stack in the generated code
+        needs_exit_stack = any(
+            args[param_spec.name].needs_exit_stack
             for param_spec in spec.iter_parameters()
-        ]
-        convs = [conv for conv in convs if conv]
-        if convs:
-            write("    # Prepare input arguments")
-            for conv in convs:
-                write("    " + conv)
-            write("")
-
-        write("    # Call wrapped function")
-        needs_return_value_from_c_call = "" in return_arg_names
-        c_args = ", ".join(
-            args[arg_spec.name].get_argument_for_function_call(args)
-            for arg_spec in spec.iter_parameters()
         )
-        c_call = f"{name}({c_args})"
-        if needs_return_value_from_c_call:
-            c_call = f"c__result = {c_call}"
-        write(f"    {c_call}")
 
-        # Add output conversion calls
-        convs = [
-            args[param_spec.name].get_output_conversion(args)
-            for param_spec in spec.iter_parameters()
-        ]
-        convs = [conv for conv in convs if conv]
-        if convs:
-            write("")
-            write("    # Prepare output arguments")
-            for conv in convs:
-                write("    " + conv)
+        with ExitStack() as stack:
+            stack.enter_context(writer.indent())
 
-        if return_arg_names:
-            return_var = "c__result"
-
-            try:
-                idx = return_arg_names.index("")
-            except ValueError:
-                tmpl = ""
-                idx = -1
-            else:
-                tmpl = return_types[idx].get_output_conversion_template_for(
-                    ParamMode.OUT
-                )
-
-            if tmpl:
-                conv = tmpl.replace("%I%", "py__result").replace("%C%", "c__result")
-                return_var = "py__result"
+            # Add exit stack context if needed
+            if needs_exit_stack:
+                write("# Create exit stack for graceful cleanup")
+                write("with ExitStack() as py__stack:")
                 write("")
-                write("    # Prepare return value")
-                write("    " + conv)
+                stack.enter_context(writer.indent())
 
-            write("")
-            write("    # Construct return value")
-            if len(return_arg_names) == 1:
-                if needs_return_value_from_c_call:
-                    var_name = return_var
+            # Add input conversion calls
+            convs = [
+                args[param_spec.name].get_input_conversion(args)
+                for param_spec in spec.iter_parameters()
+            ]
+            convs = [conv for conv in convs if conv]
+            if convs:
+                write("# Prepare input arguments")
+                for conv in convs:
+                    write(conv)
+                write("")
+
+            write("# Call wrapped function")
+            needs_return_value_from_c_call = "" in return_arg_names
+            c_args = ", ".join(
+                args[arg_spec.name].get_argument_for_function_call(args)
+                for arg_spec in spec.iter_parameters()
+            )
+            c_call = f"{name}({c_args})"
+            if needs_return_value_from_c_call:
+                c_call = f"c__result = {c_call}"
+            write(c_call)
+
+            # Add output conversion calls
+            convs = [
+                args[param_spec.name].get_output_conversion(args)
+                for param_spec in spec.iter_parameters()
+            ]
+            convs = [conv for conv in convs if conv]
+            if convs:
+                write("")
+                write("# Prepare output arguments")
+                for conv in convs:
+                    write(conv)
+
+            if return_arg_names:
+                return_var = "c__result"
+
+                try:
+                    idx = return_arg_names.index("")
+                except ValueError:
+                    tmpl = ""
+                    idx = -1
                 else:
-                    var_name = args[return_arg_names[0]].py_name
-                write(f"    return {var_name}")
-            else:
-                joint_parts = ", ".join(
-                    args[name].py_name if name else return_var
-                    for name in return_arg_names
-                )
-                write(f"    return {joint_parts}")
+                    tmpl = return_types[idx].get_output_conversion_template_for(
+                        ParamMode.OUT
+                    )
+
+                if tmpl:
+                    conv = tmpl.replace("%I%", "py__result").replace("%C%", "c__result")
+                    return_var = "py__result"
+                    write("")
+                    write("# Prepare return value")
+                    write(conv)
+
+                write("")
+                write("# Construct return value")
+                if len(return_arg_names) == 1:
+                    if needs_return_value_from_c_call:
+                        var_name = return_var
+                    else:
+                        var_name = args[return_arg_names[0]].py_name
+                    write(f"return {var_name}")
+                else:
+                    joint_parts = ", ".join(
+                        args[name].py_name if name else return_var
+                        for name in return_arg_names
+                    )
+                    write(f"return {joint_parts}")
 
     def _get_python_name(self, spec: FunctionDescriptor) -> str:
         return spec.get("NAME") or remove_prefix(spec.name, "igraph_")

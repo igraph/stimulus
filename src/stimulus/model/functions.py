@@ -178,7 +178,7 @@ class FunctionDescriptor(Mapping[str, Any], DescriptorMixin):
           - The ``PARAM_ORDER`` key from `obj` overwrites the previous parameter
             order.
 
-          - THe values from the ``IGNORE`` list are added to the existing list
+          - The values from the ``IGNORE`` list are added to the existing list
             of generators that will ignore this function. ``IGNORE`` may also
             be a string, in which case it will be split along commas.
 
