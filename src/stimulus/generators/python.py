@@ -533,6 +533,14 @@ class PythonCTypesTypedWrapperCodeGenerator(SingleBlockCodeGenerator):
                     )
                     write(f"return {joint_parts}")
 
+        # If an exit stack was needed, let the type checker know that it is
+        # impossible to get outside the stack
+        if needs_exit_stack and return_arg_names:
+            with writer.indent():
+                write("")
+                write("# Help the type checker to figure out that we never get here")
+                write('assert False, "unreachable"  # noqa: B011')
+
     def _get_python_name(self, spec: FunctionDescriptor) -> str:
         return spec.get("NAME") or remove_prefix(spec.name, "igraph_")
 
