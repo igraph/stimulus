@@ -22,10 +22,7 @@ from .utils import create_indentation_function
 indent = create_indentation_function("  ")
 
 init_functions = {
-    "igraph_vector_t": "IGRAPH_R_CHECK(igraph_vector_init(&%C%, 0));\nIGRAPH_FINALLY(igraph_vector_destroy, &%C%);",
-    "igraph_vector_int_t": "IGRAPH_R_CHECK(igraph_vector_int_init(&%C%, 0));\nIGRAPH_FINALLY(igraph_vector_int_destroy, &%C%);",
-    "igraph_vector_bool_t": "IGRAPH_R_CHECK(igraph_vector_bool_init(&%C%, 0));\nIGRAPH_FINALLY(igraph_vector_bool_destroy, &%C%);",
-    "igraph_matrix_t": "IGRAPH_R_CHECK(igraph_matrix_init(&%C%, 0, 0));\nIGRAPH_FINALLY(igraph_matrix_destroy, &%C%);"
+    "igraph_vector_int_t": "IGRAPH_R_CHECK(igraph_vector_int_init(&%C%, 0));\nIGRAPH_FINALLY(igraph_vector_int_destroy, &%C%);"
 }
 
 def get_r_parameter_name(param: ParamSpec) -> str:
