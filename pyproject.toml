@@ -1,6 +1,6 @@
 [tool.poetry]
 name = "stimulus"
-version = "0.16.1"
+version = "0.17.0"
 description = "Experimental code generator for high-level interfaces of igraph"
 authors = ["Gabor Csardi <csardi.gabor@gmail.com>", "Tamas Nepusz <ntamas@gmail.com>"]
 packages = [
