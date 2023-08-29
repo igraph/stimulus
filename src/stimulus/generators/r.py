@@ -37,12 +37,12 @@ def optional_wrapper_c(conv: str, c_type: str) -> str:
     if 'Rf_isNull' in conv:
         return conv
     result = ""
-    optional_teamplate = ["if (!Rf_isNull(%I%)) {\n", indent(conv), "\n}"]
+    optional_template = ["if (!Rf_isNull(%I%)) {\n", indent(conv), "\n}"]
 
     if c_type in init_functions:
-        optional_teamplate += [" else {\n", indent(init_functions[c_type]), "\n}"]
+        optional_template += [" else {\n", indent(init_functions[c_type]), "\n}"]
 
-    return result.join(optional_teamplate)
+    return result.join(optional_template)
 
 def optional_wrapper_r(conv: str) -> str:
     if 'is.null' in conv:
