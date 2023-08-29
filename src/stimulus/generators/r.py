@@ -25,16 +25,18 @@ init_functions = {
     "igraph_vector_int_t": "IGRAPH_R_CHECK(igraph_vector_int_init(&%C%, 0));\nIGRAPH_FINALLY(igraph_vector_int_destroy, &%C%);"
 }
 
+
 def get_r_parameter_name(param: ParamSpec) -> str:
     result = param.name_in_higher_level_interface
     if result == param.name:
         result = result.replace("_", ".")
     return result
 
+
 def optional_wrapper_c(conv: str, c_type: str) -> str:
     # Workaround for legacy types in R which have Rf_isNull
     # TODO: refactoring types in R
-    if 'Rf_isNull' in conv:
+    if "Rf_isNull" in conv:
         return conv
     result = ""
     optional_template = ["if (!Rf_isNull(%I%)) {\n", indent(conv), "\n}"]
@@ -44,8 +46,9 @@ def optional_wrapper_c(conv: str, c_type: str) -> str:
 
     return result.join(optional_template)
 
+
 def optional_wrapper_r(conv: str) -> str:
-    if 'is.null' in conv:
+    if "is.null" in conv:
         return conv
 
     return f"if (!is.null(%I%)) {conv}"
@@ -482,7 +485,6 @@ class RCCodeGenerator(SingleBlockCodeGenerator):
         for param in desc.iter_parameters():
             t = self.get_type_descriptor(param.type)
             type = t.get("CALL", f"c_{param.name}")
-            c_type = t.get_c_type(mode=param.mode)
 
             if isinstance(type, dict):
                 call = type.get(param.mode_str, "")
@@ -490,8 +492,13 @@ class RCCodeGenerator(SingleBlockCodeGenerator):
                 call = type
 
             if call:
-                if param.is_optional and param.is_input and not param.is_output and call != '0':
-                    call = f'(Rf_isNull(%I%) ? 0 : {call})'
+                if (
+                    param.is_optional
+                    and param.is_input
+                    and not param.is_output
+                    and call != "0"
+                ):
+                    call = f"(Rf_isNull(%I%) ? 0 : {call})"
                 call = call.replace("%C%", f"c_{param.name}").replace("%I%", param.name)
                 calls.append(call)
 
