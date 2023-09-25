@@ -7,7 +7,7 @@ from typing import Callable, Dict, IO, Iterator, List, Optional, Sequence, Set, 
 
 from stimulus.errors import CodeGenerationError, NoSuchTypeError
 from stimulus.model.functions import FunctionDescriptor
-from stimulus.model.parameters import ParamMode, ParamSpec
+from stimulus.model.parameters import DefaultValueType, ParamMode, ParamSpec
 from stimulus.model.types import TypeDescriptor
 
 from .base import SingleBlockCodeGenerator
@@ -283,8 +283,8 @@ class ArgInfo:
             result.appears_in_argument_list = spec.is_input
 
         # Map default value to Python
-        if spec.default is not None:
-            result.default_value = type.translate_default_value(spec.default)
+        if spec.has_default_value:
+            result.default_value = spec.get_default_value(type) or "None"
 
             # Map "NULL" to "None"
             if result.default_value == "NULL":
@@ -294,7 +294,9 @@ class ArgInfo:
             # of the enum
             if (
                 type.is_enum
-                and result.default_value == spec.default
+                and spec.default is not None
+                and spec.default[0] == DefaultValueType.ABSTRACT
+                and result.default_value == spec.default[1]
                 and py_type is not None
             ):
                 result.default_value = py_type + "." + result.default_value

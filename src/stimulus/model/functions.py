@@ -189,6 +189,9 @@ class FunctionDescriptor(Mapping[str, Any], DescriptorMixin):
           - The mapping in the ``PARAM_NAMES`` key is merged with the
             existing parameter name mapping.
 
+          - The mapping in the ``DEFAULT`` key is merged with the
+            existing parameter-to-default-value mapping.
+
           - Any other key in `obj` is merged with the existing key-value store.
         """
         if "PARAMS" in obj:
@@ -200,6 +203,9 @@ class FunctionDescriptor(Mapping[str, Any], DescriptorMixin):
             self._parameters = None
 
         if "PARAM_NAMES" in obj:
+            self._parameters = None
+
+        if "DEFAULT" in obj:
             self._parameters = None
 
         if "PARAM_ORDER" in obj:
@@ -241,6 +247,7 @@ class FunctionDescriptor(Mapping[str, Any], DescriptorMixin):
 
         param_spec_str = self._obj.get("PARAMS")
         param_name_mapping = self._obj.get("PARAM_NAMES")
+        default_value_overrides = self._obj.get("DEFAULT")
 
         if not param_spec_str:
             params = []
@@ -275,6 +282,17 @@ class FunctionDescriptor(Mapping[str, Any], DescriptorMixin):
                 else:
                     raise RuntimeError(
                         f"parameter name was overridden for unknown "
+                        f"parameter {name!r} of function {self.name!r}"
+                    )
+
+        if default_value_overrides:
+            for name, default_value in default_value_overrides.items():
+                param = result.get(name)
+                if param:
+                    param.use_explicit_default_value(default_value)
+                else:
+                    raise RuntimeError(
+                        f"parameter default value was overridden for unknown "
                         f"parameter {name!r} of function {self.name!r}"
                     )
 

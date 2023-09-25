@@ -1,6 +1,11 @@
+from __future__ import annotations
+
 from dataclasses import dataclass, field
 from enum import Enum
-from typing import Dict, List, Optional
+from typing import Dict, List, Optional, Tuple, TYPE_CHECKING
+
+if TYPE_CHECKING:
+    from .types import TypeDescriptor
 
 __all__ = ("ParamMode", "ParamSpec")
 
@@ -21,6 +26,20 @@ class ParamMode(Enum):
         return self is self.__class__.OUT or self is self.__class__.INOUT
 
 
+class DefaultValueType(Enum):
+    """Enum representing the different types of default values for function
+    parameters.
+
+    Default values may be abstract or explicit. Abstract default values are
+    mapped to a language-specific literal using the type descriptor corresponding
+    to the type of the parameter. Explicit default values are used verbatim
+    in the generated code.
+    """
+
+    ABSTRACT = "abstract"
+    EXPLICIT = "explicit"
+
+
 @dataclass
 class ParamSpec:
     """Specification of a single function parameter."""
@@ -38,12 +57,8 @@ class ParamSpec:
     mode: ParamMode = ParamMode.IN
     """Mode of the parameter (input, output or both)."""
 
-    default: Optional[str] = None
-    """Default value of the parameter.
-
-    This is an "abstract" default value, which is then mapped to concrete values
-    by the type definition files.
-    """
+    default: Optional[Tuple[DefaultValueType, str]] = None
+    """Default value of the parameter and its type."""
 
     is_optional: bool = False
     """Whether the parameter is an optional parameter.
@@ -114,7 +129,7 @@ class ParamSpec:
             name=str(name),
             mode=ParamMode(mode.lower()),
             type=str(type),
-            default=rest[0] if rest else None,
+            default=(DefaultValueType.ABSTRACT, rest[0]) if rest else None,
             is_primary="PRIMARY" in flags_present,
             is_optional="OPTIONAL" in flags_present,
         )
@@ -127,8 +142,41 @@ class ParamSpec:
         """Returns a dict representation of the parameter specification."""
         result = {"name": self.name, "mode": self.mode_str, "type": self.type}
         if self.default is not None:
-            result["default"] = self.default
+            type, value = self.default
+            if type is DefaultValueType.ABSTRACT:
+                result["default"] = value
+            else:
+                raise RuntimeError(
+                    "serializing explicit default values into a dict is not "
+                    "supported yet"
+                )
         return result
+
+    def get_default_value(self, type_desc: TypeDescriptor) -> Optional[str]:
+        """Returns the default value of this parameter, replacing any abstract
+        default values from the corresponding type specification if needed.
+        """
+        if self.default is None:
+            return None
+        else:
+            type, value = self.default
+            if type is DefaultValueType.EXPLICIT:
+                return value
+            else:
+                return type_desc.translate_default_value(value)
+
+    def use_explicit_default_value(self, value: str) -> None:
+        """Sets an explicit default value for this parameter, replacing any
+        previous abstract default value.
+        """
+        self.default = (DefaultValueType.EXPLICIT, value)
+
+    @property
+    def has_default_value(self) -> bool:
+        """Returns whether the parameter has an explicit or an abstract
+        default value.
+        """
+        return self.default is not None
 
     @property
     def is_deprecated(self) -> bool:

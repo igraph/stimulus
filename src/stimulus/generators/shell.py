@@ -177,10 +177,7 @@ class ShellCodeGenerator(SingleBlockCodeGenerator):
             type_desc = self.get_type_descriptor(params[pname].type)
             decl = type_desc.declare_c_variable(pname, mode=ParamMode.IN)
 
-            if param.default is not None:
-                default = type_desc.translate_default_value(param.default)
-            else:
-                default = ""
+            default = param.get_default_value(type_desc) or ""
 
             if decl:
                 if default:
@@ -208,7 +205,7 @@ class ShellCodeGenerator(SingleBlockCodeGenerator):
         self, name: str, params: Dict[str, ParamSpec], args: Dict[str, Dict[str, str]]
     ) -> str:
         def do_par(pname: str) -> str:
-            if params[pname].default is not None:
+            if params[pname].has_default_value is not None:
                 shell_no = args[pname]["shell_no"]
                 res = f"  shell_seen[{shell_no}] = 2;"
             else:

@@ -107,11 +107,9 @@ class RRCodeGenerator(SingleBlockCodeGenerator):
             else:
                 header = ""
 
-            if param.default is not None:
-                default = type_desc.translate_default_value(param.default)
-            else:
-                default = "NULL" if param.is_optional and header else ""
-
+            default = param.get_default_value(type_desc) or (
+                "NULL" if param.is_optional and header else ""
+            )
             if default:
                 header = f"{header}={default}"
 
