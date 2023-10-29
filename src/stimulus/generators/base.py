@@ -18,7 +18,6 @@ from typing import (
 )
 
 from stimulus.errors import CodeGenerationError, NoSuchTypeError
-from stimulus.legacy.parser import Parser as LegacyParser
 from stimulus.model import DocstringProvider, FunctionDescriptor, TypeDescriptor
 from stimulus.utils import constant
 
@@ -284,17 +283,11 @@ class CodeGeneratorBase(CodeGenerator):
                 copyfileobj(fp, output)
 
     def _parse_file(self, name: str) -> Dict[str, Any]:
-        """Parses a generic input file. The extension of the input file decides
-        whether to use the legacy ``.def`` parser or a standard YAML parser.
-        """
-        if name.lower().endswith(".def"):
-            with open(name) as fp:
-                return LegacyParser().parse(fp)
-        else:
-            from yaml import safe_load
+        """Parses a generic input file from YAML format."""
+        from yaml import safe_load
 
-            with open(name) as fp:
-                return safe_load(fp)
+        with open(name) as fp:
+            return safe_load(fp)
 
     def _should_ignore_function(self, name: str) -> bool:
         """Returns whether the function with the given name should be ignored

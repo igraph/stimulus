@@ -99,7 +99,7 @@ class ParamSpec:
     @classmethod
     def from_string(cls, value: str):
         """Constructs a ParamSpec object from its string representation in a
-        ``.def`` or ``.yaml`` file.
+        ``.yaml`` file.
         """
         value = value.strip()
 
