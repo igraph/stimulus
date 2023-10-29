@@ -1,7 +1,7 @@
 import re
 
 from abc import abstractmethod, ABCMeta
-from collections import OrderedDict
+from collections import Counter, OrderedDict
 from enum import Enum
 from io import StringIO
 from logging import Logger
@@ -286,6 +286,16 @@ class CodeGeneratorBase(CodeGenerator):
         """Parses a generic input file from YAML format."""
         from yaml import safe_load
 
+        # Check for top-level duplicate keys
+        with open(name) as fp:
+            keys = Counter(
+                line.strip().rstrip(":") for line in fp if line and line[0].isalpha()
+            )
+        duplicates = sorted(k for k, v in keys.items() if v > 1)
+        if duplicates:
+            raise ValueError(f"duplicate keys found: {', '.join(duplicates)}")
+
+        # No top-level duplicate keys, load the YAML file
         with open(name) as fp:
             return safe_load(fp)
 
