@@ -26,7 +26,11 @@ class DescriptorMixin:
         if value is None:
             return ()
         if isinstance(value, str):
-            return (part.strip() for part in value.split(","))
+            return (
+                stripped_part
+                for part in value.split(",")
+                if (stripped_part := part.strip())
+            )
         elif hasattr(value, "__iter__"):
             return (part.strip() for part in value)  # type: ignore
         else:
