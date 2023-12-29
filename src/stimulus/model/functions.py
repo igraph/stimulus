@@ -305,12 +305,6 @@ class FunctionDescriptor(Mapping[str, Any], DescriptorMixin):
                     is_kwarg = True
                 spec.is_keyword_only = is_kwarg
 
-        if any(spec.is_keyword_only for spec in specs):
-            print(
-                f"{self.name}: "
-                + ", ".join(spec.name for spec in specs if spec.is_keyword_only)
-            )
-
         # Now that we have the specifications, create an ordered dict
         result = OrderedDict((spec.name, spec) for spec in specs)
 
