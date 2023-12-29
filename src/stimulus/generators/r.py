@@ -126,8 +126,21 @@ class RRCodeGenerator(SingleBlockCodeGenerator):
         head = [
             handle_input_argument(param)
             for param in spec.iter_input_parameters(reorder=True)
+            if not param.is_keyword_only
         ]
         head = [h for h in head if h != ""]
+
+        head2 = [
+            handle_input_argument(param)
+            for param in spec.iter_input_parameters(reorder=True)
+            if param.is_keyword_only
+        ]
+        head2 = [h for h in head2 if h != ""]
+
+        if head2:
+            head.append("...")
+            head.extend(head2)
+
         if needs_details_arg:
             if "details" in head:
                 # We already have another parameter named "details" so we
