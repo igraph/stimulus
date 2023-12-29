@@ -27,14 +27,27 @@ class FunctionDescriptor(Mapping[str, Any], DescriptorMixin):
     """
 
     name: str
+    """The name of the function that the descriptor describes."""
 
     _obj: Dict[str, Any] = field(default_factory=dict)
+    """The specification from which the function descriptor was created."""
+
     _parameters: Optional[OrderedDict[str, ParamSpec]] = None
+    """Ordered mapping from parameter names to the corresponding specifications,
+    or ``None`` if the parameters have not been parsed yet.
+    """
+
     _param_order: List[str] = field(default_factory=list)
+    """Order of the parameters. Empty if the parameters have not been parsed yet."""
 
     flags: Set[str] = field(default_factory=set)
+    """Flags corresponding to the function specification."""
+
     ignored_by: Set[str] = field(default_factory=set)
+    """Set of generators that should ignore this function."""
+
     return_type: str = "ERROR"
+    """The name of the return type of this function."""
 
     def __getitem__(self, key: str) -> Any:
         return self._obj[key]
@@ -249,6 +262,7 @@ class FunctionDescriptor(Mapping[str, Any], DescriptorMixin):
         param_name_mapping = self._obj.get("PARAM_NAMES")
         default_value_overrides = self._obj.get("DEFAULT")
 
+        # First, get the parameter specifications
         if not param_spec_str:
             params = []
         elif isinstance(param_spec_str, str):
@@ -259,10 +273,48 @@ class FunctionDescriptor(Mapping[str, Any], DescriptorMixin):
             raise TypeError(
                 f"PARAMS must be a string or a list, got {type(param_spec_str)!r}"
             )
+        params = [item.strip() for item in params]
+
+        # Figure out which of the parameters are keyword-only. There are three
+        # ways to achieve this, in order of precedence:
+        #
+        # - For each parameter, you can add "KW" in front of the parameter name
+        #   and type to mark it explicitly as a keywork argument. This is not
+        #   compatible with Stimulus <0.21, though.
+        # - You can add '*' in the parameter list before the first keyword-only
+        #   parameter. This is not compatible with Stimulus <0.21 either.
+        # - You can add a key named "FIRST_KW_PARAM" whose value must
+        #   be the name of the first keyword argument. This is compatible with
+        #   Stimulus <0.21 as earlier versions will simply ignore this key.
+
+        try:
+            kwarg_marker_index = params.index("*")
+            del params[kwarg_marker_index : (kwarg_marker_index + 1)]
+        except ValueError:
+            kwarg_marker_index = len(params)
 
         specs = [ParamSpec.from_string(item) for item in params]
+        for spec in specs[kwarg_marker_index:]:
+            spec.is_keyword_only = True
+
+        first_kwarg_name = self._obj.get("FIRST_KW_PARAM")
+        if first_kwarg_name and not any(spec.is_keyword_only for spec in specs):
+            is_kwarg = False
+            for spec in specs:
+                if spec.name == first_kwarg_name:
+                    is_kwarg = True
+                spec.is_keyword_only = is_kwarg
+
+        if any(spec.is_keyword_only for spec in specs):
+            print(
+                f"{self.name}: "
+                + ", ".join(spec.name for spec in specs if spec.is_keyword_only)
+            )
+
+        # Now that we have the specifications, create an ordered dict
         result = OrderedDict((spec.name, spec) for spec in specs)
 
+        # Parse dependencies between parameters
         for name, deps in self._parse_dependencies().items():
             for dep in deps:
                 param = result.get(name)
@@ -274,6 +326,7 @@ class FunctionDescriptor(Mapping[str, Any], DescriptorMixin):
                         f"function {self.name!r}"
                     )
 
+        # Remap parameter names if needed
         if param_name_mapping:
             for name, new_name in param_name_mapping.items():
                 param = result.get(name)
@@ -285,6 +338,7 @@ class FunctionDescriptor(Mapping[str, Any], DescriptorMixin):
                         f"parameter {name!r} of function {self.name!r}"
                     )
 
+        # Override default values if needed
         if default_value_overrides:
             for name, default_value in default_value_overrides.items():
                 param = result.get(name)

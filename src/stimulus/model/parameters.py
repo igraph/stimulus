@@ -82,6 +82,14 @@ class ParamSpec:
     whether the user wants the primary return value(s) only or all of them.
     """
 
+    is_keyword_only: bool = False
+    """Whether the parameter is keyword-only.
+
+    Code generators for languages that distinguish between positional and
+    keyword arguments may use this flag to determine whether an argument is to
+    be used as a keyword argument only.
+    """
+
     dependencies: List[str] = field(default_factory=list)
     """List of other parameters that the code generators will need to generate
     code for the in- and out-conversions of this parameter.
@@ -103,7 +111,7 @@ class ParamSpec:
         """
         value = value.strip()
 
-        flags = ("PRIMARY", "OPTIONAL")
+        flags = ("PRIMARY", "OPTIONAL", "KW")
         flags_present = set()
         while True:
             for flag in flags:
@@ -132,6 +140,7 @@ class ParamSpec:
             default=(DefaultValueType.ABSTRACT, rest[0]) if rest else None,
             is_primary="PRIMARY" in flags_present,
             is_optional="OPTIONAL" in flags_present,
+            is_keyword_only="KW" in flags_present,
         )
 
     def add_dependency(self, name: str) -> None:
