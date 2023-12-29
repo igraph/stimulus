@@ -433,15 +433,25 @@ class PythonCTypesTypedWrapperCodeGenerator(SingleBlockCodeGenerator):
             else 2,
         )
 
-        # Print function header
+        # Determine return type and argument ordering
         py_return_type, return_arg_names, return_types = self._get_return_type_and_args(
             spec
         )
-        py_args = ", ".join(
+        py_args = [
             args[arg_spec.name].get_python_declaration() for arg_spec in arg_specs
-        )
+        ]
+
+        # Find the longest suffix of the argument list that consists solely of
+        # keyword-only arguments, and insert * in py_args as needed
+        idx = len(arg_specs)
+        while idx > 0 and arg_specs[idx - 1].is_keyword_only:
+            idx -= 1
+        if idx < len(arg_specs):
+            py_args.insert(idx, "*")
+
+        # Print function header
         write("")
-        write(f"def {py_name}({py_args}) -> {py_return_type}:")
+        write(f"def {py_name}({', '.join(py_args)}) -> {py_return_type}:")
 
         # Print documentation string (if any)
         docstring = self.docstring_provider(spec.name) or (
