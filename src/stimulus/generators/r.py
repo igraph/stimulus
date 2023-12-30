@@ -140,6 +140,9 @@ class RRCodeGenerator(SingleBlockCodeGenerator):
         if head2:
             head.append("...")
             head.extend(head2)
+            has_dots_arg = True
+        else:
+            has_dots_arg = False
 
         if needs_details_arg:
             if "details" in head:
@@ -167,6 +170,9 @@ class RRCodeGenerator(SingleBlockCodeGenerator):
         ## The INCONV fields are simply concatenated by newline
         ## characters.
         out.write("  # Argument checks\n")
+
+        if has_dots_arg:
+            out.write("  check_dots_empty()\n")
 
         def handle_argument_check(param: ParamSpec) -> str:
             tname = param.type
