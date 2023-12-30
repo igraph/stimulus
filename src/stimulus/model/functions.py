@@ -364,6 +364,7 @@ class FunctionDescriptor(Mapping[str, Any], DescriptorMixin):
 
         self._param_order.clear()
         rest_index = -1
+        kwarg_index = -1
 
         not_seen_params = list(self._parameters.keys())
         valid_params = not_seen_params[:]
@@ -374,6 +375,8 @@ class FunctionDescriptor(Mapping[str, Any], DescriptorMixin):
                 not_seen_params.remove(name)
             elif name == "...":
                 rest_index = len(self._param_order)
+            elif name == "*":
+                kwarg_index = len(self._param_order)
             elif name not in valid_params:
                 raise RuntimeError(
                     f"{name!r} in PARAM_ORDER refers to an unknown parameter in "
@@ -389,3 +392,7 @@ class FunctionDescriptor(Mapping[str, Any], DescriptorMixin):
             if rest_index < 0:
                 rest_index = len(self._param_order)
             self._param_order[rest_index:rest_index] = not_seen_params
+
+        if kwarg_index >= 0:
+            for index, name in enumerate(self._param_order):
+                self._parameters[name].is_keyword_only = index >= kwarg_index
