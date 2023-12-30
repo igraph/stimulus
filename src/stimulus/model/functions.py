@@ -366,6 +366,7 @@ class FunctionDescriptor(Mapping[str, Any], DescriptorMixin):
         rest_index = -1
 
         not_seen_params = list(self._parameters.keys())
+        valid_params = not_seen_params[:]
         for name in param_order:
             name = name.strip()
             if name in not_seen_params:
@@ -373,6 +374,11 @@ class FunctionDescriptor(Mapping[str, Any], DescriptorMixin):
                 not_seen_params.remove(name)
             elif name == "...":
                 rest_index = len(self._param_order)
+            elif name not in valid_params:
+                raise RuntimeError(
+                    f"{name!r} in PARAM_ORDER refers to an unknown parameter in "
+                    f"function {self.name!r}"
+                )
             else:
                 raise RuntimeError(
                     f"parameter {name!r} appears twice in PARAM_ORDER for "
