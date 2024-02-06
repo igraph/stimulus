@@ -647,7 +647,7 @@ class RInitCodeGenerator(BlockBasedCodeGenerator):
         # R wrapper only uses the first output argument.
         num_r_args = num_input_args
 
-        args = ", ".join(["SEXP"] * num_r_args)
+        args = ", ".join(["SEXP"] * num_r_args) or "void"
         out.write(f"extern SEXP R_{name}({args});\n")
 
     def generate_function(self, name: str, out: IO[str]) -> None:
