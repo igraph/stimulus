@@ -416,7 +416,7 @@ class RCCodeGenerator(SingleBlockCodeGenerator):
 
         inout = [do_par(spec) for spec in desc.iter_input_parameters()]
         inout = ["SEXP " + n for n in inout if n != ""]
-        return "SEXP R_" + desc.name + "(" + ", ".join(inout) + ")"
+        return "SEXP R_" + desc.name + "(" + (", ".join(inout) or "void") + ")"
 
     def chunk_declaration(self, desc: FunctionDescriptor) -> str:
         """There are a couple of things to declare. First a C type is
