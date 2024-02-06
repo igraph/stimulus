@@ -118,7 +118,7 @@ class FunctionSpecificationValidator(SingleBlockCodeGenerator):
             )
 
         # Write the function declaration to the output
-        args_str = ", ".join(args)
+        args_str = ", ".join(args) or "void"
         write(f"{return_type} generated_{name}({args_str});")
 
         self.functions.append(name)
@@ -160,7 +160,7 @@ class FunctionSpecificationValidator(SingleBlockCodeGenerator):
         write("#endif")
 
         write()
-        write('    printf("Everything OK!");')
+        write('    printf("Everything OK!\n");')
         write("    return 0;")
         write("}")
 
