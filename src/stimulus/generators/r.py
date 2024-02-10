@@ -210,7 +210,7 @@ class RRCodeGenerator(SingleBlockCodeGenerator):
 
         out.write("  on.exit( .Call(R_igraph_finalizer) )\n")
         out.write("  # Function call\n")
-        out.write("  res <- .Call(R_" + function + ", ")
+        out.write("  res <- .Call(R_" + function)
 
         parts = []
         for param in spec.iter_input_parameters():
@@ -220,7 +220,8 @@ class RRCodeGenerator(SingleBlockCodeGenerator):
             if call:
                 parts.append(call.replace("%I%", name))
 
-        out.write(", ".join(parts))
+        if len(parts):
+            out.write(", " + ", ".join(parts))
         out.write(")\n")
 
         ## Output conversions
