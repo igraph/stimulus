@@ -1,6 +1,6 @@
 [project]
 name = "stimulus"
-version = "0.22.0"
+version = "0.23.0"
 description = "Experimental code generator for high-level interfaces of igraph"
 authors = [
   { name = "Gabor Csardi", email = "csardi.gabor@gmail.com" },
