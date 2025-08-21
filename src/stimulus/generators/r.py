@@ -516,7 +516,7 @@ class RCCodeGenerator(SingleBlockCodeGenerator):
                     and not param.is_output
                     and call != "0"
                 ):
-                    call = f"(Rf_isNull(%I%) ? NULL : {call})"
+                    call = f"(Rf_isNull(%I%) ? {param.get_default_value(t) or "NULL"} : {call})"
                 call = call.replace("%C%", f"c_{param.name}").replace("%I%", param.name)
                 calls.append(call)
 
