@@ -294,12 +294,12 @@ class ArgInfo:
                 result.default_value = "None"
 
             # For enums, prefix the name of the default value with the name
-            # of the enum
+            # of the enum, unless the type maps the default value explicitly
             if (
                 type.is_enum
                 and spec.default is not None
                 and spec.default[0] == DefaultValueType.ABSTRACT
-                and result.default_value == spec.default[1]
+                and not type.has_default_value_mapping_for(spec.default[1])
                 and py_type is not None
             ):
                 result.default_value = py_type + "." + result.default_value

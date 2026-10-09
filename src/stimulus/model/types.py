@@ -239,6 +239,13 @@ class TypeDescriptor(Mapping[str, Any], DescriptorMixin):
         """
         return self.has_flag("by_ref")
 
+    def has_default_value_mapping_for(self, value: Any) -> bool:
+        """Returns whether the type specification explicitly maps the given
+        abstract default value to a value in the output language.
+        """
+        mapping = self._obj.get("DEFAULT")
+        return mapping is not None and value in mapping
+
     def translate_default_value(self, value: Any) -> str:
         """Translates the default value of a parameter having this type to
         a string in the format that should be used in the output file.
