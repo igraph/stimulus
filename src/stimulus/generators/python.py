@@ -312,6 +312,74 @@ class ArgInfo:
     def name(self) -> str:
         return self.param_spec.name
 
+    @property
+    def is_hidden_output(self) -> bool:
+        """Returns whether this argument is an optional output argument whose
+        Python type is explicitly declared to be null.
+
+        Such arguments are not returned to the caller; ``NULL`` is passed in
+        their place to the C function.
+        """
+        return (
+            self.param_spec.mode is ParamMode.OUT
+            and self.param_spec.is_optional
+            and _get_python_type_from_type_spec(self.type_spec, out=True) is None
+        )
+
+    @property
+    def is_returned(self) -> bool:
+        """Returns whether the value of this argument after the C call should
+        be returned to the caller.
+
+        Pure ``OUT`` arguments are returned unless they are hidden (see
+        `is_hidden_output`). ``INOUT`` arguments are returned if they appear in
+        the argument list, they have a Python return type and the type
+        declares an output conversion for the ``INOUT`` mode.
+        """
+        spec = self.param_spec
+        if spec.is_deprecated:
+            return False
+        elif spec.mode is ParamMode.OUT:
+            return not self.is_hidden_output
+        elif spec.mode is ParamMode.INOUT:
+            return (
+                self.appears_in_argument_list
+                and bool(
+                    self.type_spec.get_output_conversion_template_for(ParamMode.INOUT)
+                )
+                and _get_python_type_from_type_spec(self.type_spec, out=True)
+                is not None
+            )
+        else:
+            return False
+
+    @property
+    def is_omittable(self) -> bool:
+        """Returns whether this argument is an input argument that the caller
+        may omit by passing ``None``.
+        """
+        return (
+            self.param_spec.is_input
+            and self.param_spec.is_optional
+            and self.default_value in (None, "None")
+        )
+
+    @property
+    def may_return_none(self) -> bool:
+        """Returns whether this argument is returned to the caller and the
+        returned value may be ``None``.
+
+        This is the case for optional ``INOUT`` arguments when the caller
+        passes ``None`` and the type has no conversion template that would
+        construct a new instance for an ``OUT`` argument.
+        """
+        return (
+            self.is_returned
+            and self.param_spec.mode is ParamMode.INOUT
+            and self.is_omittable
+            and not self.type_spec.get_input_conversion_template_for(ParamMode.OUT)
+        )
+
     def get_argument_for_function_call(self, args: Dict[str, "ArgInfo"]) -> str:
         template = self.type_spec.get("CALL")
         if template:
@@ -320,6 +388,9 @@ class ArgInfo:
             return self.c_name
 
     def get_input_conversion(self, args: Dict[str, "ArgInfo"]) -> Optional[str]:
+        if self.is_hidden_output:
+            return self._apply_replacements("%C% = None", args)
+
         if not self.appears_in_argument_list:
             default = "%C% = None"
         elif self.param_spec.is_input:
@@ -337,15 +408,35 @@ class ArgInfo:
             else:
                 return None
         else:
-            if (
-                self.param_spec.is_input
-                and self.param_spec.is_optional
-                and self.default_value in (None, "None")
-            ):
-                template = f"{template} if %I% is not None else None"
+            if self.is_omittable:
+                out_template = (
+                    self.type_spec.get_input_conversion_template_for(ParamMode.OUT)
+                    if self.is_returned
+                    else ""
+                )
+                if out_template:
+                    # The argument is returned so we need to construct a new
+                    # instance when the caller passes None
+                    template = "\n".join(
+                        [
+                            "if %I% is not None:",
+                            f"    {template}",
+                            "else:",
+                            f"    {out_template}",
+                        ]
+                    )
+                else:
+                    template = f"{template} if %I% is not None else None"
             return self._apply_replacements(template, args)
 
     def get_output_conversion(self, args: Dict[str, "ArgInfo"]) -> Optional[str]:
+        if self.is_hidden_output:
+            return None
+        if self.param_spec.mode is ParamMode.INOUT and not self.is_returned:
+            # INOUT arguments that are not returned do not need to be
+            # converted back
+            return None
+
         if self.param_spec.mode == ParamMode.OUT:
             default = "%I% = %C%.value"
         else:
@@ -356,6 +447,8 @@ class ArgInfo:
         if not template:
             return None
         else:
+            if self.may_return_none:
+                template = f"if %C% is not None:\n    {template}"
             return self._apply_replacements(template, args)
 
     def get_python_declaration(self) -> str:
@@ -438,7 +531,7 @@ class PythonCTypesTypedWrapperCodeGenerator(SingleBlockCodeGenerator):
 
         # Determine return type and argument ordering
         py_return_type, return_arg_names, return_types = self._get_return_type_and_args(
-            spec
+            spec, args
         )
         py_args = [
             args[arg_spec.name].get_python_declaration() for arg_spec in arg_specs
@@ -487,7 +580,8 @@ class PythonCTypesTypedWrapperCodeGenerator(SingleBlockCodeGenerator):
             if convs:
                 write("# Prepare input arguments")
                 for conv in convs:
-                    write(conv)
+                    for line in conv.split("\n"):
+                        write(line)
                 write("")
 
             write("# Call wrapped function")
@@ -511,7 +605,8 @@ class PythonCTypesTypedWrapperCodeGenerator(SingleBlockCodeGenerator):
                 write("")
                 write("# Prepare output arguments")
                 for conv in convs:
-                    write(conv)
+                    for line in conv.split("\n"):
+                        write(line)
 
             if return_arg_names:
                 return_var = "c__result"
@@ -560,7 +655,7 @@ class PythonCTypesTypedWrapperCodeGenerator(SingleBlockCodeGenerator):
         return spec.get("NAME") or remove_prefix(spec.name, "igraph_")
 
     def _get_return_type_and_args(
-        self, spec: FunctionDescriptor
+        self, spec: FunctionDescriptor, args: Dict[str, ArgInfo]
     ) -> Tuple[str, List[str], List[TypeDescriptor]]:
         """Returns the return type of the given function, the names of the
         C arguments from which the output arguments are created and the
@@ -573,10 +668,13 @@ class PythonCTypesTypedWrapperCodeGenerator(SingleBlockCodeGenerator):
         The rules are as follows:
 
         - The index of each argument marked as OUT appears in the returned list
-          of arguments.
+          of arguments, except optional OUT arguments whose Python type is
+          null; ``NULL`` is passed for these to the C function.
 
-        - INOUT parameters are _not_ returned, but it is assumed that the
-          function will mutate these arguments in-place.
+        - INOUT parameters are returned if their type declares an output
+          conversion for the INOUT mode and they have a Python type. Other
+          INOUT parameters are not returned; it is assumed that the function
+          mutates them in-place.
 
         - If the function is declared to return with an `ERROR` abstract type,
           it is assumed that the underlying ctypes wrapper handles the error and
@@ -588,26 +686,32 @@ class PythonCTypesTypedWrapperCodeGenerator(SingleBlockCodeGenerator):
         """
         arg_names: List[str] = []
         arg_types: List[TypeDescriptor] = []
+        arg_optional: List[bool] = []
         arg_type_strs: List[str]
 
         return_type = self.get_type_descriptor(spec.return_type)
         if return_type.name != "ERROR" and return_type.name != "VOID":
             arg_names.append("")
             arg_types.append(return_type)
+            arg_optional.append(False)
 
         for parameter in spec.iter_parameters():
-            if not parameter.is_deprecated and not parameter.is_input:
+            arg = args[parameter.name]
+            if arg.is_returned:
                 arg_names.append(parameter.name)
-                arg_types.append(self.get_type_descriptor(parameter.type))
+                arg_types.append(arg.type_spec)
+                arg_optional.append(arg.may_return_none)
 
         arg_type_strs = []
-        for arg_spec in arg_types:
+        for arg_spec, optional in zip(arg_types, arg_optional):
             py_type = _get_python_type_from_type_spec(arg_spec, out=True)
             if py_type is None:
                 raise CodeGenerationError(
                     f"no Python type known for type {arg_spec.name!r} and "
                     f"it needs to be used as a return value"
                 )
+            if optional and not py_type.startswith("Optional["):
+                py_type = f"Optional[{py_type}]"
             arg_type_strs.append(py_type)
 
         if not arg_type_strs:
